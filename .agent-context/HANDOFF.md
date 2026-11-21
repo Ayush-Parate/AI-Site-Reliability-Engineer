@@ -4,52 +4,58 @@
 2026-11-21
 
 ## Current task
-Phase 2 (Supervisor and Chaos Injection) complete. Next: Phase 3 (Observability Layer).
+Phase 4 (Incident Detector) complete. Next: Phase 5 (Agent Core).
 
 ## Verified state
 - Python 3.13 venv at `.venv` with all runtime and test dependencies installed.
 - Microservices (`gateway`, `orders`, `payments`, `inventory` on ports 8000–8003) operational with health, metrics, logging, and chaos middleware.
-- Supervisor (`sre/supervisor.py`):
-  - Service registry validation against `config/dependencies.yaml`.
-  - Process lifecycle control: `start_service`, `stop_service`, `restart_service`, `start_all`, `stop_all`, `status`.
-  - State tracking in `data/supervisor_state.json`.
-  - Audit change logging to `data/changes.jsonl` with sequential `CHG-x` evidence IDs and timestamps.
-- Chaos CLI & Engine (`sre/chaos.py`):
-  - 8 failure injectors tested and working:
-    1. `crash`: `kill -9` on service PID.
-    2. `latency`: HTTP `POST /chaos` with `latency_ms`.
-    3. `error_burst`: HTTP `POST /chaos` with `error_rate`.
-    4. `memory_leak`: HTTP `POST /chaos` with `leak_mb`.
-    5. `cpu_hog`: HTTP `POST /chaos` with `cpu_burn`.
-    6. `bad_deploy`: Switch `VERSION` to `2.0.0`, restart service, causing upstream 500s.
-    7. `dependency_down`: Stop downstream dependency, causing cascades.
-    8. `db_lock`: Spawn background process holding SQLite `BEGIN EXCLUSIVE;` on `data/inventory.db`.
-  - Clear / reset: `clear_all()` and `clear_service(svc)` restores `VERSION` to 1.0.0, resets chaos HTTP, releases SQLite locks, and restarts stopped services.
-  - Hidden random selector: `chaos.py random` picks and executes one of the 8 failures.
+- Supervisor (`sre/supervisor.py`) managing process lifecycle and changes log.
+- Chaos Engine (`sre/chaos.py`) with 8 failure modes, clear/reset, and random selector.
+- Observability Layer (`sre/observability.py`):
+  - Metric Collector: polls `/metrics` (Prometheus) and `/health` into SQLite `data/observability.db`.
+  - Log Reader (`get_logs`): reads `logs/*.log` with `service`, `since`, `level`, and `trace_id` filters.
+  - Dependency Graph (`get_deps`): bidirectional upstream/downstream lookups.
+  - Change Query (`get_changes`): queries `data/changes.jsonl`.
+  - Derived Metrics: `error_rate(svc, window)` and `p95_latency(svc, window)`.
+  - Stable Evidence IDs: citations for `LOG-x`, `MET-x`, `CHG-x` via `get_evidence(id)`.
+- Incident Detector (`sre/detector.py`):
+  - Plain-code detection rules against `config/slo.yaml`:
+    1. Consecutive health check failures (3 in a row)
+    2. Error rate > 5% over 30s
+    3. p95 latency > 2x baseline or > 2000ms
+    4. Memory growth trend > 50MB in 60s
+  - Accurate T0 recording: timestamp of earliest anomaly, not detection timestamp.
+  - Time-to-detect (TTD) calculation (`created_at - T0`).
+  - Incident deduplication: further breaches attach to existing incident rather than opening new ones.
+  - Status lifecycle: `open` -> `diagnosing` -> `mitigating` -> `resolved` / `escalated`.
+  - Auto-close resolution: closes incident when healthy for `recover_after_seconds`.
+  - SQLite persistence: `incidents` table in `data/observability.db`.
+  - Full CLI: `status`, `list`, `check`, `show`, `watch`.
 - Tests & Verification:
-  - `.venv/bin/pytest -v` -> 35 passed (11 LLM + 11 services + 4 supervisor + 9 chaos tests).
-  - `.venv/bin/python tests/verify_phase2.py` -> live end-to-end execution of all 8 failure injections, supervisor actions, audit change log verification, and clean reset.
+  - `.venv/bin/pytest -v` -> 50 passed (11 LLM + 11 services + 4 supervisor + 9 chaos + 8 observability + 7 detector tests).
+  - `.venv/bin/python tests/verify_phase4.py` -> live end-to-end verification of zero false alarms on healthy baseline, incident opening on failure, deduplication on cascading failure, status updates, auto-close on recovery, and SQLite persistence.
 
 ## Changes made by the last agent
-- Created `.venv` with Python 3.13 and installed all pinned requirements.
+- Implemented `sre/detector.py`: `Breach`, `Incident`, `IncidentDetector` with rules, T0/TTD calculations, deduplication, auto-resolution, SQLite persistence, and CLI.
+- Implemented `tests/test_detector.py` (7 pytest unit tests).
+- Implemented `tests/verify_phase4.py` (live multi-process verification script).
 - Hardened `sre/supervisor.py`: automatically stops existing unhealthy process before spawning new instance to eliminate port binding collisions on restarts.
-- Executed full test suite (`pytest -v`): 35/35 passing.
-- Executed `tests/verify_phase2.py`: all 12 validation steps passed.
-- Started project (`run.py`): all 4 microservices + steady load generator running live.
 
 ## Tests and results
-- `pytest -v`: 35 passed.
-- `verify_phase2.py`: All 12 steps passed (start all, 8 failure modes, clear all, random failure, audit change log verification, stop all).
+- `pytest -v`: 50 passed.
+- `verify_phase4.py`: Passed all stages.
 
 ## Known issues / blockers
 - None.
 
 ## Exact next step
-Implement Phase 3: Observability Layer:
-- `sre/observability.py`:
-  - Metric collector: poll `/metrics` and `/health` every 5 seconds into SQLite (`data/observability.db`).
-  - Log reader: parse JSON log files from `logs/*.log` with service/time/level/trace_id filters.
-  - Dependency lookup: upstream and downstream relationships from `config/dependencies.yaml`.
-  - Change reader: query `data/changes.jsonl`.
-  - Derived calculations: `error_rate(svc, window)`, `p95_latency(svc, window)`, `check_health()`.
-  - Evidence IDs: stable IDs for every returned log (`LOG-x`), metric (`MET-x`), and change (`CHG-x`).
+Implement Phase 5: Agent Core (`sre/agent.py`):
+- `step()` loop using OpenAI-compatible client wrapper from `sre/llm.py` with provider failover.
+- System prompt enforcing AIA-02 principles:
+  - Earliest anomaly (walk upstream from symptom).
+  - Check changes first.
+  - Two independent pieces of evidence.
+  - Cite evidence IDs (`LOG-x`, `MET-x`, `CHG-x`).
+- Structured JSON final answer schema: `root_cause_service`, `root_cause`, `evidence`, `causal_chain`, `confidence`, `proposed_fix`, `mitigation_vs_cure`.
+- Cap at 12 steps.
+- Record T1 (diagnosis time) and calculate Time-to-Diagnosis (`T1 - T0`).

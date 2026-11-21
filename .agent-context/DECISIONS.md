@@ -43,6 +43,24 @@ Record confirmed decisions only. Include date, decision, reason, and consequence
 - 2026-11-21: Supervisor terminates unhealthy processes prior to restarting/starting on the same port.
   Reason: prevents port binding collisions ([Errno 48] Address already in use) when attempting to start an unhealthy service whose PID is still alive.
   Consequence: clean process recovery during chaos clearing and automated restarts.
+- 2026-11-21: Observability storage schema in SQLite (`data/observability.db`).
+  Reason: fast indexed queries for time series metrics (`metrics`), health check history (`health_checks`),
+  and deduplicated log indexing (`log_index` with UNIQUE(service, file_line)).
+  Consequence: enables sub-millisecond lookups for derived metrics, window filtering, and exact citation lookups.
+- 2026-11-21: Unified Stable Evidence ID format (`LOG-<id>`, `MET-<id>`, `CHG-<id>`).
+  Reason: AIA-02 requires evidence-backed claims in reasoning and postmortem.
+  Consequence: every log line, metric sample, and audit change has a unique, deterministic citation ID
+  queryable via `get_evidence(id)`.
+- 2026-11-21: Derived metrics combine log ground truth and Prometheus counters.
+  Reason: structured logs provide immediate per-request status and latency, while Prometheus counters
+  provide cumulative rates.
+  Consequence: derived metrics `error_rate` and `p95_latency` reflect anomalies immediately without polling lag.
+- 2026-11-21: Incident T0 computed from earliest anomaly event rather than detection time.
+  Reason: AIA-02 benchmark measures Time-to-Detect (TTD = T_detect - T0) and Time-to-Diagnosis (T_diag - T0).
+  Consequence: T0 captures the exact timestamp of the first failed health check, 5xx error log, or latency spike.
+- 2026-11-21: Incident deduplication by attaching cascading breaches to active incident.
+  Reason: a single root cause (e.g. database lock or crashed dependency) triggers cascading failures across callers.
+  Consequence: all affected services and evidence IDs aggregate into one incident, preventing noisy alarm storms.
 
 ## Pending decisions
 - Which concrete primary/backup LLM providers to target for the demo (depends on
