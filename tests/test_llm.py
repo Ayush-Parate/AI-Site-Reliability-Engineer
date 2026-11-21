@@ -1,10 +1,10 @@
-"""Tests for the LLM provider wrapper (no network required)."""
+"""Tests for the Ollama (qwen2.5) LLM wrapper (no network required)."""
 
 import os
-
 import pytest
+from unittest.mock import MagicMock
 
-from sre.llm import LLM, LLMConfigError, PROVIDERS
+from sre.llm import LLM, LLMConfigError, LLMUnavailable, PROVIDERS
 
 
 @pytest.fixture(autouse=True)
@@ -20,62 +20,48 @@ def clean_env(monkeypatch):
     yield
 
 
-def test_provider_order_primary_then_backup(monkeypatch):
-    monkeypatch.setenv("PRIMARY_PROVIDER", "openai")
+def test_default_provider_is_ollama():
+    llm = LLM()
+    assert llm.order == ["ollama"]
+
+
+def test_provider_order_dedupes(monkeypatch):
+    monkeypatch.setenv("PRIMARY_PROVIDER", "ollama")
     monkeypatch.setenv("BACKUP_PROVIDER", "ollama")
     llm = LLM()
-    assert llm.order == ["openai", "ollama"]
-
-
-def test_provider_order_dedupes_when_primary_equals_backup(monkeypatch):
-    monkeypatch.setenv("PRIMARY_PROVIDER", "groq")
-    monkeypatch.setenv("BACKUP_PROVIDER", "groq")
-    llm = LLM()
-    assert llm.order == ["groq"]
+    assert llm.order == ["ollama"]
 
 
 def test_unknown_provider_raises(monkeypatch):
-    monkeypatch.setenv("PRIMARY_PROVIDER", "not-a-provider")
-    with pytest.raises(LLMConfigError):
+    monkeypatch.setenv("PRIMARY_PROVIDER", "openai")
+    with pytest.raises(LLMConfigError, match="Unknown provider 'openai'"):
         LLM()
 
 
-def test_ollama_needs_no_key(monkeypatch):
-    monkeypatch.setenv("PRIMARY_PROVIDER", "ollama")
-    monkeypatch.setenv("BACKUP_PROVIDER", "openai")
+def test_ollama_needs_no_key():
     llm = LLM()
     assert llm.is_configured("ollama") is True
-    assert llm.is_configured("openai") is False
 
 
-def test_keyed_provider_requires_key(monkeypatch):
-    monkeypatch.setenv("PRIMARY_PROVIDER", "openai")
-    llm = LLM()
-    assert llm.is_configured("openai") is False
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-    assert llm.is_configured("openai") is True
+def test_model_defaults_to_qwen25():
+    assert PROVIDERS["ollama"].default_model == "qwen2.5"
+    assert PROVIDERS["ollama"].model == "qwen2.5"
 
 
 def test_model_override_from_env(monkeypatch):
-    monkeypatch.setenv("PRIMARY_PROVIDER", "openai")
-    monkeypatch.setenv("OPENAI_MODEL", "gpt-custom")
-    llm = LLM()
-    assert PROVIDERS["openai"].model == "gpt-custom"
+    monkeypatch.setenv("OLLAMA_MODEL", "qwen2.5:7b")
+    assert PROVIDERS["ollama"].model == "qwen2.5:7b"
 
 
-def test_all_providers_have_required_fields():
-    for name, cfg in PROVIDERS.items():
-        assert cfg.base_url
-        assert cfg.api_key_env
-        assert cfg.default_model
-        assert name == cfg.name
+def test_providers_dict_contains_only_ollama():
+    assert list(PROVIDERS.keys()) == ["ollama"]
+    cfg = PROVIDERS["ollama"]
+    assert cfg.name == "ollama"
+    assert "11434" in cfg.base_url
+    assert cfg.requires_key is False
 
 
-def test_chat_single_provider_success(monkeypatch):
-    from unittest.mock import MagicMock
-
-    monkeypatch.setenv("PRIMARY_PROVIDER", "openai")
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+def test_chat_success():
     llm = LLM()
 
     mock_client = MagicMock()
@@ -84,59 +70,25 @@ def test_chat_single_provider_success(monkeypatch):
     mock_choice.message.tool_calls = None
     mock_client.chat.completions.create.return_value = MagicMock(choices=[mock_choice])
 
-    llm._clients["openai"] = mock_client
+    llm._clients["ollama"] = mock_client
     resp = llm.chat([{"role": "user", "content": "ping"}])
     assert resp["text"] == "pong"
-    assert resp["provider"] == "openai"
+    assert resp["provider"] == "ollama"
+    assert resp["model"] == "qwen2.5"
 
 
-def test_chat_failover_to_backup(monkeypatch):
-    from unittest.mock import MagicMock
-
-    monkeypatch.setenv("PRIMARY_PROVIDER", "openai")
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-    monkeypatch.setenv("BACKUP_PROVIDER", "groq")
-    monkeypatch.setenv("GROQ_API_KEY", "gsk-test")
-    llm = LLM()
-
-    primary_client = MagicMock()
-    primary_client.chat.completions.create.side_effect = RuntimeError("Rate limit")
-
-    backup_client = MagicMock()
-    backup_choice = MagicMock()
-    backup_choice.message.content = "recovered by backup"
-    backup_choice.message.tool_calls = None
-    backup_client.chat.completions.create.return_value = MagicMock(choices=[backup_choice])
-
-    llm._clients["openai"] = primary_client
-    llm._clients["groq"] = backup_client
-
-    resp = llm.chat([{"role": "user", "content": "ping"}])
-    assert resp["text"] == "recovered by backup"
-    assert resp["provider"] == "groq"
-
-
-def test_chat_all_fail_raises_llmunavailable(monkeypatch):
-    from unittest.mock import MagicMock
-    from sre.llm import LLMUnavailable
-
-    monkeypatch.setenv("PRIMARY_PROVIDER", "openai")
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+def test_chat_all_fail_raises_llmunavailable():
     llm = LLM()
 
     mock_client = MagicMock()
-    mock_client.chat.completions.create.side_effect = RuntimeError("Network error")
-    llm._clients["openai"] = mock_client
+    mock_client.chat.completions.create.side_effect = RuntimeError("Connection refused")
+    llm._clients["ollama"] = mock_client
 
-    with pytest.raises(LLMUnavailable):
+    with pytest.raises(LLMUnavailable, match="Ollama provider 'ollama' failed"):
         llm.chat([{"role": "user", "content": "ping"}])
 
 
-def test_test_method_returns_text_when_configured(monkeypatch):
-    from unittest.mock import MagicMock
-
-    monkeypatch.setenv("PRIMARY_PROVIDER", "openai")
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+def test_complete_convenience_method():
     llm = LLM()
 
     mock_client = MagicMock()
@@ -144,8 +96,21 @@ def test_test_method_returns_text_when_configured(monkeypatch):
     mock_choice.message.content = "pong"
     mock_choice.message.tool_calls = None
     mock_client.chat.completions.create.return_value = MagicMock(choices=[mock_choice])
-    llm._clients["openai"] = mock_client
+    llm._clients["ollama"] = mock_client
+
+    assert llm.complete("ping") == "pong"
+
+
+def test_test_method_returns_text_when_configured():
+    llm = LLM()
+
+    mock_client = MagicMock()
+    mock_choice = MagicMock()
+    mock_choice.message.content = "pong"
+    mock_choice.message.tool_calls = None
+    mock_client.chat.completions.create.return_value = MagicMock(choices=[mock_choice])
+    llm._clients["ollama"] = mock_client
 
     res = llm.test()
-    assert res["openai"]["ok"] is True
-    assert res["openai"]["text"] == "pong"
+    assert res["ollama"]["ok"] is True
+    assert res["ollama"]["text"] == "pong"

@@ -41,9 +41,8 @@ FINAL_JSON = {
 @pytest.fixture
 def agent_env(tmp_path: Path, monkeypatch):
     """Isolated observability + detector + tools for agent tests."""
-    monkeypatch.setenv("PRIMARY_PROVIDER", "openai")
+    monkeypatch.setenv("PRIMARY_PROVIDER", "ollama")
     monkeypatch.setenv("BACKUP_PROVIDER", "ollama")
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
 
     db_file = tmp_path / "obs.db"
     logs_dir = tmp_path / "logs"
@@ -161,12 +160,12 @@ recover_after_seconds: 1.0
     }
 
 
-def _chat_response(text: str = "", tool_calls: list | None = None, provider: str = "openai"):
+def _chat_response(text: str = "", tool_calls: list | None = None, provider: str = "ollama"):
     return {
         "text": text,
         "tool_calls": tool_calls or [],
         "provider": provider,
-        "model": "mock-model",
+        "model": "qwen2.5",
         "message": None,
     }
 
@@ -238,7 +237,7 @@ def test_investigate_records_t1_and_diagnosis(agent_env):
     detector: IncidentDetector = agent_env["detector"]
 
     def fake_chat(messages, **kwargs):
-        return _chat_response(text=json.dumps(FINAL_JSON), provider=kwargs.get("provider", "openai"))
+        return _chat_response(text=json.dumps(FINAL_JSON), provider=kwargs.get("provider", "ollama"))
 
     agent.llm.chat = MagicMock(side_effect=fake_chat)
 
@@ -255,7 +254,7 @@ def test_investigate_records_t1_and_diagnosis(agent_env):
     assert diagnosis.time_to_diagnosis_seconds == pytest.approx(
         diagnosis.t1_unix - incident.t0_unix, abs=0.05
     )
-    assert diagnosis.provider == "openai"
+    assert diagnosis.provider == "ollama"
     assert diagnosis.steps_used >= 1
 
     refreshed = detector.get_incident(incident.id)
@@ -335,32 +334,37 @@ def test_max_steps_forces_final_answer(agent_env):
 def test_provider_failover_restarts_investigation(agent_env, monkeypatch):
     agent: Agent = agent_env["agent"]
     incident: Incident = agent_env["incident"]
-    monkeypatch.setenv("PRIMARY_PROVIDER", "openai")
-    monkeypatch.setenv("BACKUP_PROVIDER", "ollama")
-    # Rebuild order after env change
+    from sre.llm import ProviderConfig, PROVIDERS
+
+    monkeypatch.setitem(
+        PROVIDERS,
+        "ollama-backup",
+        ProviderConfig(name="ollama-backup", default_model="qwen2.5:14b", requires_key=False),
+    )
+    monkeypatch.setenv("PRIMARY_PROVIDER", "ollama")
+    monkeypatch.setenv("BACKUP_PROVIDER", "ollama-backup")
     agent.llm = LLM()
 
     seen_providers: list[str] = []
 
     def flaky_chat(messages, **kwargs):
-        provider = kwargs.get("provider") or "openai"
+        provider = kwargs.get("provider") or "ollama"
         seen_providers.append(provider)
-        if provider == "openai":
+        if provider == "ollama":
             raise RuntimeError("primary blew up mid-investigation")
         return _chat_response(text=json.dumps(FINAL_JSON), provider=provider)
 
     agent.llm.chat = MagicMock(side_effect=flaky_chat)
-    # ollama needs no key; mark configured via is_configured already True
     diagnosis = agent.investigate(incident)
-    assert diagnosis.provider == "ollama"
-    assert "openai" in seen_providers
+    assert diagnosis.provider == "ollama-backup"
     assert "ollama" in seen_providers
+    assert "ollama-backup" in seen_providers
 
 
 def test_all_providers_fail_raises(agent_env, monkeypatch):
     agent: Agent = agent_env["agent"]
     incident: Incident = agent_env["incident"]
-    monkeypatch.setenv("PRIMARY_PROVIDER", "openai")
+    monkeypatch.setenv("PRIMARY_PROVIDER", "ollama")
     monkeypatch.setenv("BACKUP_PROVIDER", "ollama")
     agent.llm = LLM()
 

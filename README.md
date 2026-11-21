@@ -23,6 +23,7 @@ At 3 AM, one tired engineer digs through logs, metrics and alerts to find out wh
 | **Incident timeline** | Built from the audit log; each entry links to evidence |
 | **Auto postmortem** | Generated from the timeline; claims without evidence are rejected |
 | **Time-to-diagnosis** | Measured from the earliest anomaly (T0) to root cause named (T1) |
+| **Telegram Approval Bot** | Real-time incident alerts, inline [Approve]/[Deny] buttons, and slash commands |
 | **LLM failover** | Primary and backup provider (for example a cloud API plus local Ollama) |
 
 ## Architecture
@@ -110,15 +111,20 @@ cp .env.example .env             # then add your key(s)
 
 ### Configure the LLM
 
+This project uses local [Ollama](https://ollama.com) running `qwen2.5` (no external API keys needed).
+
+```bash
+ollama pull qwen2.5
+```
+
 `.env`:
 
+```ini
+PRIMARY_PROVIDER=ollama
+BACKUP_PROVIDER=ollama
+OLLAMA_BASE_URL=http://localhost:11434/v1
+OLLAMA_MODEL=qwen2.5
 ```
-PRIMARY_PROVIDER=gemini
-GEMINI_API_KEY=your_key_here
-BACKUP_PROVIDER=ollama           # local fallback, no key needed
-```
-
-Any OpenAI-compatible provider works (OpenAI, Gemini, Groq, OpenRouter, Ollama). Check each provider's docs for current model names.
 
 ### Run the demo
 
@@ -198,6 +204,35 @@ Results are written to `reports/results.md`.
 - **Allowlist over blocklist.** Only registered tools can run, and each validates its arguments.
 - **Failover per incident.** If the primary LLM fails, the whole investigation reruns on the backup, so tool-call histories are never mixed across providers.
 - **Verify, never assume.** "Restarted" is not "fixed"; health, error rate and p95 must recover.
+
+## Telegram Incident & Approval Bot
+
+The AI-SRE system includes an autonomous on-call Telegram bot (`sre/telegram_bot.py`) built with `python-telegram-bot` v20+ and `asyncio`:
+1. **Push Alerts**: Proactively notifies on-call teams of open incidents and Tier-2 "Ask-First" remediations.
+2. **Interactive In-Place Approval**: Renders inline `[ ✅ Approve ]` and `[ ❌ Deny ]` buttons; executing a decision immediately applies or aborts the fix via the AI-SRE REST API and edits the message in-place with the operator's identity and timestamp.
+3. **On-Call Slash Commands**:
+   - `/status` - Real-time microservice health, latencies, and error rates.
+   - `/incidents` - Active incident details with trigger rule, T0 anomaly timestamp, and TTD.
+   - `/approvals` - Inspect pending fix approvals with interactive decision buttons.
+   - `/postmortem <id>` - View verified incident postmortem report.
+   - `/restart <service>` - Manually trigger supervisor restart for any microservice.
+   - `/help` - Command manual.
+
+### Telegram Bot Setup
+1. Create a bot using [@BotFather](https://t.me/BotFather) on Telegram and copy the token.
+2. Set your environment variables in `.env`:
+   ```bash
+   TELEGRAM_BOT_TOKEN="123456789:ABCdefGhIJKlmNoPQRstuVWXyz"
+   TELEGRAM_CHAT_ID="123456789" # Your chat or group ID
+   AI_SRE_URL="http://localhost:9000"
+   ```
+3. Run the bot standalone:
+   ```bash
+   python sre/telegram_bot.py
+   # Or via the single entrypoint
+   python run.py --telegram-bot
+   ```
+   *(When `TELEGRAM_BOT_TOKEN` is configured in `.env`, `python run.py` automatically launches the bot in the background alongside the services).*
 
 ## Safety
 

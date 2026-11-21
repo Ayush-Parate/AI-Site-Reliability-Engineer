@@ -88,12 +88,14 @@ class IncidentDetector:
         slo_path: Path | str | None = None,
         deps_path: Path | str | None = None,
         db_path: Path | str | None = None,
+        auto_remediate: bool = False,
     ) -> None:
         self.obs = observability or get_observability()
         self.supervisor = supervisor or Supervisor()
         self.slo_path = Path(slo_path or DEFAULT_SLO_PATH)
         self.deps_path = Path(deps_path or DEFAULT_DEPS_PATH)
         self.db_path = Path(db_path or self.obs.db_path)
+        self.auto_remediate = auto_remediate
 
         self._lock = threading.Lock()
         self._watch_thread: threading.Thread | None = None
@@ -610,6 +612,14 @@ class IncidentDetector:
             except Exception:
                 pass
 
+            if self.auto_remediate:
+                threading.Thread(
+                    target=self._run_auto_remediation,
+                    args=(new_inc,),
+                    daemon=True,
+                    name=f"auto_remediate_{new_inc.id}",
+                ).start()
+
             return new_inc
 
         # ---------------------------------------------------------------------
@@ -648,6 +658,14 @@ class IncidentDetector:
                 except Exception:
                     pass
 
+                # Auto-generate verified postmortem report
+                try:
+                    from sre.postmortem import PostmortemGenerator
+                    pm = PostmortemGenerator(observability=self.obs, detector=self)
+                    pm.generate_postmortem(active_inc.id)
+                except Exception:
+                    pass
+
                 return active_inc
             else:
                 # Still within recovery observation window
@@ -682,6 +700,21 @@ class IncidentDetector:
 
         self.save_incident(inc)
         return inc
+
+    def _run_auto_remediation(self, incident: Incident) -> None:
+        """Autonomous remediation: runs LLM Agent investigation, Fixer recovery, and Postmortem."""
+        try:
+            from sre.agent import Agent
+            from sre.fixer import Fixer
+            from sre.postmortem import PostmortemGenerator
+            agent = Agent(detector=self, supervisor=self.supervisor)
+            diagnosis = agent.investigate(incident)
+            fixer = Fixer(supervisor=self.supervisor, detector=self, observability=self.obs)
+            fixer.apply_diagnosis(diagnosis)
+            pm = PostmortemGenerator(observability=self.obs, detector=self)
+            pm.generate_postmortem(incident.id)
+        except Exception:
+            pass
 
     # =========================================================================
     # Continuous Watcher
@@ -747,6 +780,7 @@ def main(argv: list[str] | None = None) -> int:
     # Watch
     p_watch = subparsers.add_parser("watch", help="Run continuous incident detector loop")
     p_watch.add_argument("--interval", type=float, default=2.0, help="Polling interval in seconds")
+    p_watch.add_argument("--auto-remediate", action="store_true", default=False, help="Automatically invoke Agent & Fixer on detected incidents")
 
     args = parser.parse_args(argv)
     detector = IncidentDetector()
@@ -789,7 +823,9 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
     elif args.command == "watch":
-        print(f"Starting Incident Detector watcher (interval: {args.interval}s)... Press Ctrl+C to stop.")
+        if args.auto_remediate:
+            detector.auto_remediate = True
+        print(f"Starting Incident Detector watcher (interval: {args.interval}s, auto_remediate={detector.auto_remediate})... Press Ctrl+C to stop.")
         detector.start_background_detector(interval_seconds=args.interval)
         try:
             while True:

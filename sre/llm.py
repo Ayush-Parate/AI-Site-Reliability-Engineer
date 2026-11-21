@@ -1,9 +1,7 @@
-"""LLM provider wrapper with failover.
+"""LLM provider wrapper for local Ollama (qwen2.5).
 
-All providers speak the OpenAI-compatible chat-completions interface, so a
-single ``openai.OpenAI`` client (with a custom ``base_url``) covers every
-provider. ``PROVIDERS`` lists the known providers; ``PRIMARY_PROVIDER`` and
-``BACKUP_PROVIDER`` in ``.env`` pick the order in which they are tried.
+Speaks the OpenAI-compatible chat-completions interface supported by Ollama at
+http://localhost:11434/v1. The dedicated model for this project is qwen2.5.
 """
 
 from __future__ import annotations
@@ -19,17 +17,17 @@ load_dotenv()
 
 @dataclass(frozen=True)
 class ProviderConfig:
-    """Connection details for one OpenAI-compatible provider."""
+    """Connection details for Ollama OpenAI-compatible endpoint."""
 
-    name: str
-    base_url: str
-    api_key_env: str
-    default_model: str
-    requires_key: bool = True
+    name: str = "ollama"
+    base_url: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+    api_key_env: str = "OLLAMA_API_KEY"
+    default_model: str = "qwen2.5"
+    requires_key: bool = False
 
     @property
     def model(self) -> str:
-        return os.getenv(f"{self.name.upper()}_MODEL", self.default_model)
+        return os.getenv("OLLAMA_MODEL", self.default_model)
 
     @property
     def api_key(self) -> str | None:
@@ -37,30 +35,6 @@ class ProviderConfig:
 
 
 PROVIDERS: dict[str, ProviderConfig] = {
-    "openai": ProviderConfig(
-        name="openai",
-        base_url="https://api.openai.com/v1",
-        api_key_env="OPENAI_API_KEY",
-        default_model="gpt-4o-mini",
-    ),
-    "gemini": ProviderConfig(
-        name="gemini",
-        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-        api_key_env="GEMINI_API_KEY",
-        default_model="gemini-2.0-flash",
-    ),
-    "groq": ProviderConfig(
-        name="groq",
-        base_url="https://api.groq.com/openai/v1",
-        api_key_env="GROQ_API_KEY",
-        default_model="llama-3.3-70b-versatile",
-    ),
-    "openrouter": ProviderConfig(
-        name="openrouter",
-        base_url="https://openrouter.ai/api/v1",
-        api_key_env="OPENROUTER_API_KEY",
-        default_model="openai/gpt-4o-mini",
-    ),
     "ollama": ProviderConfig(
         name="ollama",
         base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1"),
@@ -76,12 +50,12 @@ class LLMConfigError(RuntimeError):
 
 
 class LLMUnavailable(RuntimeError):
-    """Raised when every configured provider fails for a request."""
+    """Raised when Ollama is unavailable or fails for a request."""
 
 
 def _provider_order() -> list[str]:
-    """Provider names to try, primary first then backup, de-duplicated."""
-    primary = (os.getenv("PRIMARY_PROVIDER") or "openai").strip().lower()
+    """Provider names to try (defaults to ollama)."""
+    primary = (os.getenv("PRIMARY_PROVIDER") or "ollama").strip().lower()
     backup = (os.getenv("BACKUP_PROVIDER") or "ollama").strip().lower()
 
     order: list[str] = []
@@ -96,7 +70,7 @@ def _provider_order() -> list[str]:
 
 
 class LLM:
-    """A chat client that fails over across OpenAI-compatible providers."""
+    """A chat client for Ollama running qwen2.5 via the OpenAI-compatible API."""
 
     def __init__(
         self,
@@ -121,32 +95,27 @@ class LLM:
                 "The 'openai' package is required. Run: pip install -r requirements.txt"
             ) from exc
 
-    def _client(self, name: str) -> Any:
-        """Return a cached OpenAI-compatible client for a provider."""
+    def _client(self, name: str = "ollama") -> Any:
+        """Return a cached OpenAI-compatible client for Ollama."""
         if name in self._clients:
             return self._clients[name]
 
         from openai import OpenAI
 
-        cfg = PROVIDERS[name]
-        if cfg.requires_key and not cfg.api_key:
-            raise LLMConfigError(
-                f"Provider '{name}' is selected but {cfg.api_key_env} is not set."
-            )
+        if name not in PROVIDERS:
+            raise LLMConfigError(f"Unknown provider '{name}'. Known: {', '.join(sorted(PROVIDERS))}")
 
+        cfg = PROVIDERS[name]
         client = OpenAI(
-            api_key=cfg.api_key or "not-needed",
+            api_key=cfg.api_key or "ollama",
             base_url=cfg.base_url,
         )
         self._clients[name] = client
         return client
 
-    def is_configured(self, name: str) -> bool:
-        """True if the provider has what it needs to run."""
-        cfg = PROVIDERS[name]
-        if not cfg.requires_key:
-            return True
-        return bool(cfg.api_key)
+    def is_configured(self, name: str = "ollama") -> bool:
+        """True if the provider is registered."""
+        return name in PROVIDERS
 
     def chat(
         self,
@@ -158,27 +127,19 @@ class LLM:
         max_tokens: int | None = None,
         provider: str | None = None,
     ) -> dict[str, Any]:
-        """Send a chat request, failing over across providers.
+        """Send a chat request to Ollama qwen2.5.
 
         Returns a dict with ``text``, ``tool_calls``, ``provider``, ``model``
-        and the raw ``message``. Raises :class:`LLMUnavailable` if every
-        provider in the order fails.
+        and the raw ``message``. Raises :class:`LLMUnavailable` on error.
         """
-        names = [provider] if provider else list(self.order)
-        errors: list[str] = []
+        target_provider = provider or (self.order[0] if self.order else "ollama")
+        if target_provider not in PROVIDERS:
+            raise LLMConfigError(f"Unknown provider '{target_provider}'. Known: {', '.join(sorted(PROVIDERS))}")
 
-        for name in names:
-            if not self.is_configured(name):
-                errors.append(f"{name}: not configured")
-                continue
-            try:
-                return self._chat_once(name, messages, tools, model, temperature, max_tokens)
-            except Exception as exc:  # noqa: BLE001 - failover on any provider error
-                errors.append(f"{name}: {exc}")
-
-        raise LLMUnavailable(
-            "All configured LLM providers failed:\n  " + "\n  ".join(errors)
-        )
+        try:
+            return self._chat_once(target_provider, messages, tools, model, temperature, max_tokens)
+        except Exception as exc:  # noqa: BLE001
+            raise LLMUnavailable(f"Ollama provider '{target_provider}' failed: {exc}") from exc
 
     def _chat_once(
         self,
@@ -224,19 +185,13 @@ class LLM:
         return self.chat([{"role": "user", "content": prompt}], **kwargs)["text"]
 
     def test(self) -> dict[str, dict[str, Any]]:
-        """Send a tiny prompt to each configured provider.
+        """Send a tiny prompt to verify Ollama connectivity.
 
-        Used by the Phase 0 exit check. Returns a mapping of provider name to
-        a result dict with ``ok`` and either ``text`` or ``error``.
+        Returns a mapping of provider name to a result dict with ``ok`` and
+        either ``text`` or ``error``.
         """
         results: dict[str, dict[str, Any]] = {}
         for name in self.order:
-            if not self.is_configured(name):
-                results[name] = {
-                    "ok": False,
-                    "error": f"missing {PROVIDERS[name].api_key_env}",
-                }
-                continue
             try:
                 out = self._chat_once(
                     name,
@@ -247,6 +202,6 @@ class LLM:
                     max_tokens=16,
                 )
                 results[name] = {"ok": True, "text": out["text"].strip(), "model": out["model"]}
-            except Exception as exc:  # noqa: BLE001 - report per-provider
+            except Exception as exc:  # noqa: BLE001
                 results[name] = {"ok": False, "error": str(exc)}
         return results

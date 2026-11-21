@@ -41,7 +41,7 @@ def _scripted_cascade_llm(tools: ToolRegistry):
 
     def chat(messages, **kwargs):
         state["n"] += 1
-        provider = kwargs.get("provider") or "openai"
+        provider = kwargs.get("provider") or "ollama"
         n = state["n"]
 
         if n == 1:
@@ -211,12 +211,7 @@ def main() -> int:
         print("  [PASS] Incident opened with T0.")
 
         print("\n4. Running agent investigation (scripted LLM tool loop)...")
-        llm = LLM(primary="openai", backup="ollama")
-        # Ensure openai appears configured for order; chat is mocked anyway
-        import os
-
-        os.environ.setdefault("OPENAI_API_KEY", "sk-verify-phase5")
-        llm = LLM(primary="openai", backup="ollama")
+        llm = LLM()
 
         agent = Agent(
             llm=llm,
@@ -260,14 +255,16 @@ def main() -> int:
         print("  [PASS] Incident metadata persists diagnosis + T1.")
 
         print("\n5. Provider failover (primary fails → backup succeeds)...")
-        # Resolve current and open a fresh synthetic path by reusing same incident object
-        # with a new investigation that fails over.
+        from sre.llm import ProviderConfig, PROVIDERS
+        PROVIDERS["ollama-backup"] = ProviderConfig(name="ollama-backup", default_model="qwen2.5:14b", requires_key=False)
+        agent.llm = LLM(primary="ollama", backup="ollama-backup")
+
         seen: list[str] = []
 
         def flaky(messages, **kwargs):
-            provider = kwargs.get("provider") or "openai"
+            provider = kwargs.get("provider") or "ollama"
             seen.append(provider)
-            if provider == "openai":
+            if provider == "ollama":
                 raise RuntimeError("simulated primary outage")
             final = {
                 "root_cause_service": "payments",
@@ -291,10 +288,11 @@ def main() -> int:
 
         agent.llm.chat = MagicMock(side_effect=flaky)
         d2 = agent.investigate(incident)
-        assert d2.provider == "ollama"
-        assert "openai" in seen and "ollama" in seen
+        assert d2.provider == "ollama-backup"
+        assert "ollama" in seen and "ollama-backup" in seen
         print(f"  Failover providers seen: {seen}")
         print("  [PASS] Provider failover restarted investigation on backup.")
+        PROVIDERS.pop("ollama-backup", None)
 
         print("\n6. Cleanup: restart payments and clear chaos...")
         chaos.clear_all()

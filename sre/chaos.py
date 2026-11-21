@@ -317,41 +317,54 @@ def main(argv: list[str] | None = None) -> int:
 
     # 1. Crash
     p_crash = subparsers.add_parser("crash", help="Crash a service with SIGKILL")
-    p_crash.add_argument("--service", default="payments", help="Service to crash (default: payments)")
+    p_crash.add_argument("service_pos", nargs="?", default=None, metavar="service", help="Service to crash")
+    p_crash.add_argument("--service", default=None, help="Service to crash (default: payments)")
 
     # 2. Latency
     p_lat = subparsers.add_parser("latency", help="Inject latency on a service")
-    p_lat.add_argument("--service", default="payments", help="Service name")
+    p_lat.add_argument("service_pos", nargs="?", default=None, metavar="service", help="Service name")
+    p_lat.add_argument("ms_pos", nargs="?", type=float, default=None, metavar="ms", help="Latency in ms")
+    p_lat.add_argument("--service", default=None, help="Service name")
     p_lat.add_argument("--ms", type=float, default=2500.0, help="Latency in milliseconds")
 
     # 3. Error burst
-    p_err = subparsers.add_parser("error-burst", help="Inject 5xx error burst")
-    p_err.add_argument("--service", default="payments", help="Service name")
+    p_err = subparsers.add_parser("error-burst", aliases=["errors"], help="Inject 5xx error burst")
+    p_err.add_argument("service_pos", nargs="?", default=None, metavar="service", help="Service name")
+    p_err.add_argument("rate_pos", nargs="?", type=float, default=None, metavar="rate", help="Error rate (0.0 to 1.0)")
+    p_err.add_argument("--service", default=None, help="Service name")
     p_err.add_argument("--rate", type=float, default=0.5, help="Error rate (0.0 to 1.0)")
 
     # 4. Memory leak
-    p_leak = subparsers.add_parser("memory-leak", help="Simulate a memory leak")
-    p_leak.add_argument("--service", default="orders", help="Service name")
+    p_leak = subparsers.add_parser("memory-leak", aliases=["leak"], help="Simulate a memory leak")
+    p_leak.add_argument("service_pos", nargs="?", default=None, metavar="service", help="Service name")
+    p_leak.add_argument("mb_pos", nargs="?", type=int, default=None, metavar="mb", help="MB to leak")
+    p_leak.add_argument("--service", default=None, help="Service name")
     p_leak.add_argument("--mb", type=int, default=150, help="MB to leak")
 
     # 5. CPU hog
-    p_cpu = subparsers.add_parser("cpu-hog", help="Consume high CPU with busy calculations")
-    p_cpu.add_argument("--service", default="gateway", help="Service name")
+    p_cpu = subparsers.add_parser("cpu-hog", aliases=["cpu"], help="Consume high CPU with busy calculations")
+    p_cpu.add_argument("service_pos", nargs="?", default=None, metavar="service", help="Service name")
+    p_cpu.add_argument("--service", default=None, help="Service name")
 
     # 6. Bad deploy
     p_dep = subparsers.add_parser("bad-deploy", help="Deploy buggy v2 version of a service")
-    p_dep.add_argument("--service", default="payments", help="Service to deploy v2")
+    p_dep.add_argument("service_pos", nargs="?", default=None, metavar="service", help="Service to deploy v2")
+    p_dep.add_argument("--service", default=None, help="Service to deploy v2")
 
     # 7. Dependency down
     p_down = subparsers.add_parser("dependency-down", help="Stop a downstream dependency")
-    p_down.add_argument("--service", default="inventory", help="Downstream service to stop")
+    p_down.add_argument("service_pos", nargs="?", default=None, metavar="service", help="Downstream service to stop")
+    p_down.add_argument("--service", default=None, help="Downstream service to stop")
 
     # 8. DB lock
-    p_lock = subparsers.add_parser("db-lock", help="Hold SQLite exclusive write lock")
+    p_lock = subparsers.add_parser("db-lock", aliases=["dblock"], help="Hold SQLite exclusive write lock")
+    p_lock.add_argument("service_pos", nargs="?", default=None, metavar="service", help="Service or duration")
+    p_lock.add_argument("duration_pos", nargs="?", type=float, default=None, metavar="duration", help="Lock duration in seconds")
     p_lock.add_argument("--duration", type=float, default=30.0, help="Lock duration in seconds")
 
     # Clear / Reset
     p_clear = subparsers.add_parser("clear", help="Clear chaos and restore healthy baseline")
+    p_clear.add_argument("service_pos", nargs="?", default=None, metavar="service", help="Service name or 'all'")
     p_clear.add_argument("--service", default=None, help="Specific service or omit for all")
 
     # Random selector
@@ -360,34 +373,43 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     engine = ChaosEngine()
 
+    # Normalize positional arguments
+    svc = getattr(args, "service", None) or getattr(args, "service_pos", None)
+    if svc == "all":
+        svc = None
+
     try:
         if args.command == "crash":
-            res = engine.inject_crash(args.service)
-            print(f"[CHAOS] Crashed service {args.service}: {res}")
+            res = engine.inject_crash(svc or "payments")
+            print(f"[CHAOS] Crashed service {svc or 'payments'}: {res}")
         elif args.command == "latency":
-            res = engine.inject_latency(args.service, latency_ms=args.ms)
-            print(f"[CHAOS] Injected {args.ms}ms latency on {args.service}: {res}")
-        elif args.command == "error-burst":
-            res = engine.inject_error_burst(args.service, error_rate=args.rate)
-            print(f"[CHAOS] Injected error rate {args.rate} on {args.service}: {res}")
-        elif args.command == "memory-leak":
-            res = engine.inject_memory_leak(args.service, leak_mb=args.mb)
-            print(f"[CHAOS] Injected {args.mb}MB memory leak on {args.service}: {res}")
-        elif args.command == "cpu-hog":
-            res = engine.inject_cpu_hog(args.service)
-            print(f"[CHAOS] Injected CPU hog on {args.service}: {res}")
+            ms_val = getattr(args, "ms_pos", None) or getattr(args, "ms", 2500.0)
+            res = engine.inject_latency(svc or "payments", latency_ms=float(ms_val))
+            print(f"[CHAOS] Injected {ms_val}ms latency on {svc or 'payments'}: {res}")
+        elif args.command in ("error-burst", "errors"):
+            rate_val = getattr(args, "rate_pos", None) or getattr(args, "rate", 0.5)
+            res = engine.inject_error_burst(svc or "payments", error_rate=float(rate_val))
+            print(f"[CHAOS] Injected error rate {rate_val} on {svc or 'payments'}: {res}")
+        elif args.command in ("memory-leak", "leak"):
+            mb_val = getattr(args, "mb_pos", None) or getattr(args, "mb", 150)
+            res = engine.inject_memory_leak(svc or "orders", leak_mb=int(mb_val))
+            print(f"[CHAOS] Injected {mb_val}MB memory leak on {svc or 'orders'}: {res}")
+        elif args.command in ("cpu-hog", "cpu"):
+            res = engine.inject_cpu_hog(svc or "gateway")
+            print(f"[CHAOS] Injected CPU hog on {svc or 'gateway'}: {res}")
         elif args.command == "bad-deploy":
-            res = engine.inject_bad_deploy(args.service)
-            print(f"[CHAOS] Deployed buggy v2 on {args.service}: {res}")
+            res = engine.inject_bad_deploy(svc or "payments")
+            print(f"[CHAOS] Deployed buggy v2 on {svc or 'payments'}: {res}")
         elif args.command == "dependency-down":
-            res = engine.inject_dependency_down(args.service)
-            print(f"[CHAOS] Stopped dependency {args.service}: {res}")
-        elif args.command == "db-lock":
-            res = engine.inject_db_lock(args.duration)
-            print(f"[CHAOS] SQLite write lock held for {args.duration}s: {res}")
+            res = engine.inject_dependency_down(svc or "inventory")
+            print(f"[CHAOS] Stopped dependency {svc or 'inventory'}: {res}")
+        elif args.command in ("db-lock", "dblock"):
+            dur_val = getattr(args, "duration_pos", None) or getattr(args, "duration", 30.0)
+            res = engine.inject_db_lock(float(dur_val))
+            print(f"[CHAOS] SQLite write lock held for {dur_val}s: {res}")
         elif args.command == "clear":
-            if args.service:
-                res = engine.clear_service(args.service)
+            if svc:
+                res = engine.clear_service(svc)
             else:
                 res = engine.clear_all()
             print(f"[CHAOS] Chaos cleared: {res}")

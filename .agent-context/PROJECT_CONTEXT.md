@@ -11,7 +11,7 @@ statement AIA-02. No Docker required; services run as plain local processes.
 - Python 3.13 (Homebrew `python@3.13` in `.venv`).
 - FastAPI + Uvicorn (services and dashboard), httpx (HTTP client / metrics),
   prometheus-client (metrics), PyYAML (config), python-dotenv (env), openai SDK
-  (LLM calls). Tests with pytest.
+  (connecting locally to Ollama running qwen2.5). Tests with pytest.
 - SQLite for inventory (`data/inventory.db`) and observability/metrics/incidents (Phases 3+).
 
 ## Architecture

@@ -15,6 +15,7 @@ from __future__ import annotations
 from dataclasses import asdict
 import datetime
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -123,10 +124,12 @@ async def api_status() -> dict[str, Any]:
 
     active_inc = detector.get_active_incident()
     pending_approvals = fixer.list_approvals(status="pending")
+    recent_incidents = detector.list_incidents(limit=15)
 
     return {
         "services": service_cards,
         "active_incident": active_inc.to_dict() if active_inc else None,
+        "recent_incidents": [inc.to_dict() for inc in recent_incidents],
         "pending_approvals_count": len(pending_approvals),
         "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
@@ -138,9 +141,13 @@ async def api_incidents() -> dict[str, Any]:
     detector: IncidentDetector = deps["detector"]
     active = detector.get_active_incident()
     recent = detector.list_incidents(limit=15)
+    active_dict = active.to_dict() if active else None
+    recent_dicts = [inc.to_dict() for inc in recent]
+    all_incs = ([active_dict] if active_dict else []) + [i for i in recent_dicts if not active_dict or i.get("id") != active_dict.get("id")]
     return {
-        "active": active.to_dict() if active else None,
-        "recent": [inc.to_dict() for inc in recent],
+        "active": active_dict,
+        "recent": recent_dicts,
+        "incidents": all_incs,
     }
 
 
@@ -306,6 +313,28 @@ async def api_chaos_clear() -> dict[str, Any]:
     return {"ok": True, "result": res}
 
 
+@app.post("/api/services/{service_name}/restart", summary="Restart a microservice")
+async def api_restart_service(service_name: str) -> dict[str, Any]:
+    deps = get_services()
+    sup: Supervisor = deps["sup"]
+    try:
+        info = sup.restart_service(service_name)
+        return {"ok": True, "service": service_name, "info": asdict(info)}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/services/restart-all", summary="Restart all microservices")
+async def api_restart_all() -> dict[str, Any]:
+    deps = get_services()
+    sup: Supervisor = deps["sup"]
+    try:
+        results = sup.start_all()
+        return {"ok": True, "services": {k: asdict(v) for k, v in results.items()}}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 # ---------------------------------------------------------------------------
 # Single-Page Application (HTML)
 # ---------------------------------------------------------------------------
@@ -352,6 +381,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         <span class="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span>
         <span class="text-slate-300 font-medium">LIVE TELEMETRY</span>
       </div>
+      <button onclick="restartAllServices()" class="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg shadow transition flex items-center gap-1.5 cursor-pointer">
+        <i class="fa-solid fa-arrows-rotate"></i> Restart All
+      </button>
       <button onclick="triggerResetChaos()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg text-slate-200 font-medium transition flex items-center gap-1.5">
         <i class="fa-solid fa-rotate-left"></i> Reset Chaos
       </button>
@@ -407,7 +439,13 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             <i class="fa-solid fa-heart-pulse text-indigo-400"></i>
             <h3 class="font-bold text-white text-sm">Incident Timeline & Causal Evidence</h3>
           </div>
-          <span class="text-xs text-slate-400" id="timeline-incident-label">No active incident</span>
+          <div class="flex items-center space-x-2">
+            <label class="text-[11px] text-slate-400">Incident:</label>
+            <select id="incident-select" onchange="onSelectIncident(this.value)" class="bg-slate-950 border border-slate-700 text-slate-200 text-xs rounded px-2 py-1 outline-none cursor-pointer">
+              <option value="">Zero Incidents</option>
+            </select>
+            <span class="text-xs text-slate-400 font-semibold" id="timeline-incident-label">Baseline Normal</span>
+          </div>
         </div>
 
         <div id="timeline-container" class="space-y-3 max-h-80 overflow-y-auto pr-1">
@@ -598,13 +636,15 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   <!-- Frontend Logic -->
   <script>
     let activeIncidentId = null;
+    let selectedIncidentId = null;
+    let userManuallySelected = false;
 
     async function fetchStatus() {
       try {
         const res = await fetch('/api/status');
-        const data = await res.parse ? await res.json() : await res.json();
+        const data = await res.json();
         renderServices(data.services);
-        renderActiveIncident(data.active_incident);
+        renderIncidents(data.active_incident, data.recent_incidents || []);
         document.getElementById('last-updated').innerText = 'Synced ' + new Date().toLocaleTimeString();
       } catch (err) {
         console.error("Status sync failed", err);
@@ -650,64 +690,137 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                 <span class="${s.p95_latency_ms > 2000 ? 'text-amber-400 font-bold' : 'text-slate-200'}">${s.p95_latency_ms}ms</span>
               </div>
             </div>
+
+            <div class="mt-3 pt-2.5 border-t border-slate-800 flex justify-between items-center">
+              <span class="text-[10px] text-slate-400 font-mono">Process: :${s.port}</span>
+              <button onclick="restartService('${s.service}')" class="px-3 py-1 text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white rounded-md shadow transition flex items-center gap-1.5 cursor-pointer">
+                <i class="fa-solid fa-rotate-right text-[11px]"></i> Restart
+              </button>
+            </div>
           </div>
         `;
       });
     }
 
-    function renderActiveIncident(inc) {
+    function onSelectIncident(incId) {
+      userManuallySelected = true;
+      selectedIncidentId = incId;
+      if (incId) {
+        fetchTimeline(incId);
+      }
+    }
+
+    function renderIncidents(activeInc, recentIncidents) {
       const banner = document.getElementById('active-incident-banner');
       const timelineLabel = document.getElementById('timeline-incident-label');
+      const select = document.getElementById('incident-select');
 
-      if (!inc) {
+      // 1. Active Incident Banner
+      if (!activeInc) {
         banner.className = 'hidden';
         activeIncidentId = null;
-        timelineLabel.innerText = 'Baseline Normal';
-        return;
+      } else {
+        activeIncidentId = activeInc.id;
+        banner.className = 'bg-rose-950/40 border border-rose-500/50 rounded-xl p-4 text-rose-200 flex items-center justify-between pulse-glow';
+        banner.innerHTML = `
+          <div class="flex items-center space-x-3">
+            <span class="text-rose-400 text-xl"><i class="fa-solid fa-triangle-exclamation"></i></span>
+            <div>
+              <h4 class="font-bold text-white text-sm flex items-center gap-2">
+                ACTIVE INCIDENT: ${activeInc.id}
+                <span class="text-[10px] px-2 py-0.5 rounded bg-rose-900/60 border border-rose-700 text-rose-300 uppercase">${activeInc.status}</span>
+              </h4>
+              <p class="text-xs text-rose-300">
+                Trigger: <code class="text-white bg-rose-900/40 px-1 py-0.5 rounded">${activeInc.trigger_rule}</code> | 
+                Affected: ${activeInc.affected_services.join(', ')} | 
+                Detected at: ${activeInc.created_at.split('T')[1].slice(0,8)} (TTD: ${activeInc.ttd_seconds.toFixed(1)}s)
+              </p>
+            </div>
+          </div>
+          <div class="flex items-center space-x-2">
+            <button onclick="viewEvidence('${activeInc.evidence[0]}')" class="px-3 py-1.5 bg-rose-900/50 hover:bg-rose-800 text-rose-200 text-xs font-semibold rounded-lg border border-rose-700 transition">
+              <i class="fa-solid fa-magnifying-glass"></i> Inspect Evidence
+            </button>
+          </div>
+        `;
       }
 
-      activeIncidentId = inc.id;
-      timelineLabel.innerText = `${inc.id} (${inc.status.toUpperCase()})`;
+      // 2. Build full incident options
+      const allIncidents = [];
+      if (activeInc) {
+        allIncidents.push(activeInc);
+      }
+      for (const r of recentIncidents) {
+        if (!allIncidents.some(i => i.id === r.id)) {
+          allIncidents.push(r);
+        }
+      }
 
-      banner.className = 'bg-rose-950/40 border border-rose-500/50 rounded-xl p-4 text-rose-200 flex items-center justify-between pulse-glow';
-      banner.innerHTML = `
-        <div class="flex items-center space-x-3">
-          <span class="text-rose-400 text-xl"><i class="fa-solid fa-triangle-exclamation"></i></span>
-          <div>
-            <h4 class="font-bold text-white text-sm flex items-center gap-2">
-              ACTIVE INCIDENT: ${inc.id}
-              <span class="text-[10px] px-2 py-0.5 rounded bg-rose-900/60 border border-rose-700 text-rose-300 uppercase">${inc.status}</span>
-            </h4>
-            <p class="text-xs text-rose-300">
-              Trigger: <code class="text-white bg-rose-900/40 px-1 py-0.5 rounded">${inc.trigger_rule}</code> | 
-              Affected: ${inc.affected_services.join(', ')} | 
-              Detected at: ${inc.created_at.split('T')[1].slice(0,8)} (TTD: ${inc.ttd_seconds.toFixed(1)}s)
-            </p>
+      // 3. Update dropdown options
+      if (allIncidents.length === 0) {
+        select.innerHTML = '<option value="">Zero Incidents</option>';
+      } else {
+        const optionsHtml = allIncidents.map(inc => {
+          const isActive = activeInc && activeInc.id === inc.id;
+          const prefix = isActive ? '🔥 [ACTIVE] ' : '';
+          return `<option value="${inc.id}">${prefix}${inc.id} (${inc.status.toUpperCase()}) - ${inc.trigger_rule}</option>`;
+        }).join('');
+        if (select.innerHTML !== optionsHtml) {
+          select.innerHTML = optionsHtml;
+        }
+      }
+
+      // 4. Determine which incident to display in the timeline
+      let targetId = null;
+      if (activeInc && !userManuallySelected) {
+        targetId = activeInc.id;
+      } else if (userManuallySelected && allIncidents.some(i => i.id === selectedIncidentId)) {
+        targetId = selectedIncidentId;
+      } else if (allIncidents.length > 0) {
+        targetId = allIncidents[0].id;
+      }
+
+      if (targetId) {
+        select.value = targetId;
+        selectedIncidentId = targetId;
+        const incObj = allIncidents.find(i => i.id === targetId);
+        timelineLabel.innerText = incObj ? `${incObj.id} (${incObj.status.toUpperCase()})` : targetId;
+        fetchTimeline(targetId);
+      } else {
+        timelineLabel.innerText = 'Baseline Normal';
+        document.getElementById('timeline-container').innerHTML = `
+          <div class="text-center py-10 text-slate-500 text-xs">
+            <i class="fa-solid fa-circle-check text-2xl text-emerald-500/40 mb-2 block"></i>
+            All 4 microservices operating within SLO thresholds. Zero active breaches.<br>
+            <span class="text-slate-400 mt-2 block">Click <b>Trigger Failure</b> above or run a chaos command to see live incident timeline.</span>
           </div>
-        </div>
-        <div class="flex items-center space-x-2">
-          <button onclick="viewEvidence('${inc.evidence[0]}')" class="px-3 py-1.5 bg-rose-900/50 hover:bg-rose-800 text-rose-200 text-xs font-semibold rounded-lg border border-rose-700 transition">
-            <i class="fa-solid fa-magnifying-glass"></i> Inspect Evidence
-          </button>
-        </div>
-      `;
-
-      fetchTimeline(inc.id);
+        `;
+      }
     }
 
     async function fetchTimeline(incId) {
+      if (!incId) return;
       try {
         const res = await fetch(`/api/incidents/${incId}/timeline`);
+        if (!res.ok) return;
         const data = await res.json();
-        renderTimeline(data.timeline);
+        renderTimeline(data.timeline, incId);
       } catch (err) {
         console.error("Timeline fetch error", err);
       }
     }
 
-    function renderTimeline(timeline) {
+    function renderTimeline(timeline, incId) {
       const container = document.getElementById('timeline-container');
-      if (!timeline || timeline.length === 0) return;
+      if (!timeline || timeline.length === 0) {
+        container.innerHTML = `
+          <div class="text-center py-8 text-slate-500 text-xs">
+            <i class="fa-solid fa-clock-rotate-left text-2xl text-slate-600 mb-2 block"></i>
+            Timeline for ${incId} is generating or no events recorded yet.
+          </div>
+        `;
+        return;
+      }
       container.innerHTML = '';
 
       timeline.forEach(t => {
@@ -755,12 +868,13 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         cards.innerHTML = '';
 
         data.pending.forEach(a => {
+          const svcName = a.service || (a.args && a.args.service) || 'system';
           cards.innerHTML += `
             <div class="bg-slate-900 border border-amber-500/30 rounded-lg p-4 space-y-3">
               <div class="flex justify-between items-start">
                 <div>
                   <span class="text-xs font-bold text-amber-400 uppercase mono">${a.id}</span>
-                  <h4 class="text-sm font-bold text-white mt-0.5">Proposed Action: <code class="text-amber-300 font-bold">${a.action}</code> on <code>${a.service}</code></h4>
+                  <h4 class="text-sm font-bold text-white mt-0.5">Proposed Action: <code class="text-amber-300 font-bold">${a.action}</code> on <code>${svcName}</code></h4>
                 </div>
                 <span class="text-[10px] bg-amber-950 text-amber-300 border border-amber-800 px-2 py-0.5 rounded uppercase font-semibold">Tier: Ask-First</span>
               </div>
@@ -909,6 +1023,24 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       }
     }
 
+    async function restartService(serviceName) {
+      try {
+        await fetch(`/api/services/${serviceName}/restart`, {method: 'POST'});
+        fetchStatus();
+      } catch (err) {
+        alert("Failed to restart service: " + err);
+      }
+    }
+
+    async function restartAllServices() {
+      try {
+        await fetch('/api/services/restart-all', {method: 'POST'});
+        fetchStatus();
+      } catch (err) {
+        alert("Failed to restart services: " + err);
+      }
+    }
+
     async function openBenchmarkModal() {
       document.getElementById('benchmark-modal').classList.remove('hidden');
       try {
@@ -940,12 +1072,12 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       document.getElementById('benchmark-modal').classList.add('hidden');
     }
 
-    // Auto-refresh loop (every 2.5 seconds)
+    // Auto-refresh loop (fast 1-second interval for real-time reactivity)
     fetchStatus();
     fetchApprovals();
     fetchReports();
-    setInterval(fetchStatus, 2500);
-    setInterval(fetchApprovals, 3000);
+    setInterval(fetchStatus, 1000);
+    setInterval(fetchApprovals, 1000);
   </script>
 </body>
 </html>
@@ -958,11 +1090,25 @@ async def dashboard_index() -> HTMLResponse:
 
 
 def main() -> int:
+    import os
     import uvicorn
-    port = int(os.getenv("DASHBOARD_PORT", "8080"))
+    env_port = os.getenv("DASHBOARD_PORT")
+    port = int(env_port) if env_port else None
+    if port is None:
+        import socket
+        for p in (8080, 9000, 8090, 8088):
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                try:
+                    s.bind(("0.0.0.0", p))
+                    port = p
+                    break
+                except OSError:
+                    continue
+        if port is None:
+            port = 8080
     host = os.getenv("DASHBOARD_HOST", "0.0.0.0")
     print(f"Starting AI-SRE Dashboard on http://{host}:{port}")
-    uvicorn.run(app, host=host, port=port, log_level="info")
+    uvicorn.run("sre.dashboard.app:app", host=host, port=port, log_level="info", reload=True, reload_dirs=["sre", "config"])
     return 0
 
 

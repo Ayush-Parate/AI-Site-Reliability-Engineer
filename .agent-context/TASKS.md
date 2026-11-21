@@ -104,7 +104,14 @@ All 8 Phases implemented and verified. Project is ready for live demonstration a
       - Postmortem report viewer serving generated markdown reports from `reports/INC-*.md`.
       - Chaos injection control board and reset controls on the UI for live demo and judging.
 - [x] Add `tests/test_dashboard.py` (9 unit tests) and `tests/verify_phase8.py` (end-to-end multi-process verification script).
-- [x] Full test suite (90 tests across all modules) passing.
+- [x] Implement Telegram Incident & Approval Bot (`sre/telegram_bot.py`):
+      - `python-telegram-bot` v20+ with `asyncio`.
+      - Background proactive polling worker alerting on-call chat of new incidents and approvals.
+      - Interactive inline keyboard buttons: `[ ✅ Approve ]` and `[ ❌ Deny ]` with in-place message updates.
+      - Slash commands: `/status`, `/incidents`, `/approvals`, `/postmortem <id>`, `/restart <svc>`, `/help`.
+      - Integrated CLI in `run.py` (`--telegram-bot` or automatic launch on `TELEGRAM_BOT_TOKEN`).
+- [x] Add `tests/test_telegram_bot.py` (17 unit tests).
+- [x] Full test suite (107 tests across 11 test modules) passing.
 
 ## In progress
 - None.

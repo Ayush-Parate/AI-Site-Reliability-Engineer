@@ -86,5 +86,9 @@ Record confirmed decisions only. Include date, decision, reason, and consequence
   Reason: eliminates node/npm build dependencies and ensures instant zero-configuration demo readiness across all environments.
   Consequence: single command `python run.py` serves microservices, background collector, traffic generator, and complete live UI.
 
+- 2026-11-21: Standardize on local Ollama running `qwen2.5` as the dedicated LLM model.
+  Reason: user requirement to keep only local Ollama with qwen2.5 and remove all external cloud providers.
+  Consequence: simplifies configuration to zero-cost, private, local inference without external API keys or cloud dependencies.
+
 ## Pending decisions
 - None. All 8 phases implemented and verified.
