@@ -4,58 +4,60 @@
 2026-11-21
 
 ## Current task
-Phase 4 (Incident Detector) complete. Next: Phase 5 (Agent Core).
+Phase 6 (Fix Pipeline and Approval Flow) complete. Next: Phase 7 (Postmortem and Dashboard).
 
 ## Verified state
-- Python 3.13 venv at `.venv` with all runtime and test dependencies installed.
+- Python 3.12/3.13 venv at `.venv` with all runtime and test dependencies installed.
 - Microservices (`gateway`, `orders`, `payments`, `inventory` on ports 8000–8003) operational with health, metrics, logging, and chaos middleware.
 - Supervisor (`sre/supervisor.py`) managing process lifecycle and changes log.
 - Chaos Engine (`sre/chaos.py`) with 8 failure modes, clear/reset, and random selector.
-- Observability Layer (`sre/observability.py`):
-  - Metric Collector: polls `/metrics` (Prometheus) and `/health` into SQLite `data/observability.db`.
-  - Log Reader (`get_logs`): reads `logs/*.log` with `service`, `since`, `level`, and `trace_id` filters.
-  - Dependency Graph (`get_deps`): bidirectional upstream/downstream lookups.
-  - Change Query (`get_changes`): queries `data/changes.jsonl`.
-  - Derived Metrics: `error_rate(svc, window)` and `p95_latency(svc, window)`.
-  - Stable Evidence IDs: citations for `LOG-x`, `MET-x`, `CHG-x` via `get_evidence(id)`.
-- Incident Detector (`sre/detector.py`):
-  - Plain-code detection rules against `config/slo.yaml`:
-    1. Consecutive health check failures (3 in a row)
-    2. Error rate > 5% over 30s
-    3. p95 latency > 2x baseline or > 2000ms
-    4. Memory growth trend > 50MB in 60s
-  - Accurate T0 recording: timestamp of earliest anomaly, not detection timestamp.
-  - Time-to-detect (TTD) calculation (`created_at - T0`).
-  - Incident deduplication: further breaches attach to existing incident rather than opening new ones.
-  - Status lifecycle: `open` -> `diagnosing` -> `mitigating` -> `resolved` / `escalated`.
-  - Auto-close resolution: closes incident when healthy for `recover_after_seconds`.
-  - SQLite persistence: `incidents` table in `data/observability.db`.
-  - Full CLI: `status`, `list`, `check`, `show`, `watch`.
+- Observability Layer (`sre/observability.py`) with metrics/logs/deps/changes/evidence IDs.
+- Incident Detector (`sre/detector.py`) with plain-code SLO rules, T0/TTD, dedup, auto-close.
+- Agent Core (`sre/agent.py` + `sre/tools.py`):
+  - Allowlisted read-only tools: `get_logs`, `get_metrics`, `get_deps`, `get_changes`,
+    `get_health`, `get_evidence` (argument validation + truncation).
+  - `investigate()` / `step()` LLM tool-calling loop capped at 12 steps.
+  - System prompt: earliest anomaly, dependency walk upstream, changes-first,
+    ≥2 independent evidence citations (LOG/MET/CHG), confidence honesty.
+  - Structured JSON final answer: `root_cause_service`, `root_cause`, `evidence`,
+    `causal_chain`, `confidence`, `proposed_fix`, `mitigation_vs_cure`.
+  - Per-incident provider failover (fresh history on backup; no mixed tool traces).
+  - Records T1 and `time_to_diagnosis_seconds = T1 - T0` on incident metadata +
+    `agent_diagnosis` audit change.
+  - CLI: `python -m sre.agent investigate [INC-id]` / `prompt`.
+- Fix Pipeline (`sre/fixer.py`):
+  - Code-enforced `auto_fix`, `ask_first`, `never_do`, and `unknown` tiers.
+  - Persistent approval records in SQLite with approve, deny, timeout, and cancel paths.
+  - ≤2 restarts per service in 10 minutes; circuit trips propose rollback approval.
+  - Pre-fix snapshots and post-fix health/error-rate/p95 verification; recovery resolves incidents.
+  - Never-do prompt-injection actions and out-of-app edits are blocked and audit logged.
 - Tests & Verification:
-  - `.venv/bin/pytest -v` -> 50 passed (11 LLM + 11 services + 4 supervisor + 9 chaos + 8 observability + 7 detector tests).
-  - `.venv/bin/python tests/verify_phase4.py` -> live end-to-end verification of zero false alarms on healthy baseline, incident opening on failure, deduplication on cascading failure, status updates, auto-close on recovery, and SQLite persistence.
+  - `.venv/bin/pytest -q` -> 74 passed.
+  - `.venv/bin/python tests/verify_phase5.py` -> cascade crash diagnosed as payments,
+    T1 recorded, failover to backup provider verified.
+  - `.venv/bin/python tests/verify_phase6.py` -> crash restart, never-do blocks,
+    bad-deploy rollback approval, and circuit-breaker approval passed.
 
 ## Changes made by the last agent
-- Implemented `sre/detector.py`: `Breach`, `Incident`, `IncidentDetector` with rules, T0/TTD calculations, deduplication, auto-resolution, SQLite persistence, and CLI.
-- Implemented `tests/test_detector.py` (7 pytest unit tests).
-- Implemented `tests/verify_phase4.py` (live multi-process verification script).
-- Hardened `sre/supervisor.py`: automatically stops existing unhealthy process before spawning new instance to eliminate port binding collisions on restarts.
+- Implemented `sre/tools.py`: ToolRegistry allowlist with OpenAI function schemas.
+- Implemented `sre/agent.py`: Agent, Diagnosis, investigate/step loop, T1 recording, CLI.
+- Implemented `tests/test_agent.py` (10 unit tests with mocked LLM).
+- Implemented `tests/verify_phase5.py` (live multi-process verification with scripted LLM).
+- Implemented `sre/fixer.py`: tier checks, persisted approvals, snapshots, apply actions,
+  recovery verification, incident resolution/escalation, and circuit breaker.
+- Implemented `tests/test_fixer.py` (12 unit tests).
+- Implemented `tests/verify_phase6.py` (live Phase 6 verification).
 
 ## Tests and results
-- `pytest -v`: 50 passed.
-- `verify_phase4.py`: Passed all stages.
+- `pytest -q`: 74 passed.
+- `verify_phase5.py`: Passed all stages (cascade root cause, T1, failover).
+- `verify_phase6.py`: Passed all stages (crash, never-do block, rollback, circuit breaker).
 
 ## Known issues / blockers
-- None.
+- None. Live LLM diagnosis against a real primary/backup provider still depends on
+  configured API keys / Ollama; unit + verify cover the loop with mocks.
 
 ## Exact next step
-Implement Phase 5: Agent Core (`sre/agent.py`):
-- `step()` loop using OpenAI-compatible client wrapper from `sre/llm.py` with provider failover.
-- System prompt enforcing AIA-02 principles:
-  - Earliest anomaly (walk upstream from symptom).
-  - Check changes first.
-  - Two independent pieces of evidence.
-  - Cite evidence IDs (`LOG-x`, `MET-x`, `CHG-x`).
-- Structured JSON final answer schema: `root_cause_service`, `root_cause`, `evidence`, `causal_chain`, `confidence`, `proposed_fix`, `mitigation_vs_cure`.
-- Cap at 12 steps.
-- Record T1 (diagnosis time) and calculate Time-to-Diagnosis (`T1 - T0`).
+Implement Phase 7: Postmortem and Dashboard:
+- Generate evidence-backed incident postmortems.
+- Build the dashboard view over incidents, evidence, fixes, approvals, and timelines.

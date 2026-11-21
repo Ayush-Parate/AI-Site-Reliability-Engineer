@@ -1,0 +1,52 @@
+# Current Handoff
+
+## Last updated
+2026-11-21
+
+## Current task
+Phase 5 (Agent Core) complete. Next: Phase 6 (Fix Pipeline and Approval Flow).
+
+## Verified state
+- Python 3.12/3.13 venv at `.venv` with all runtime and test dependencies installed.
+- Microservices (`gateway`, `orders`, `payments`, `inventory` on ports 8000–8003) operational with health, metrics, logging, and chaos middleware.
+- Supervisor (`sre/supervisor.py`) managing process lifecycle and changes log.
+- Chaos Engine (`sre/chaos.py`) with 8 failure modes, clear/reset, and random selector.
+- Observability Layer (`sre/observability.py`) with metrics/logs/deps/changes/evidence IDs.
+- Incident Detector (`sre/detector.py`) with plain-code SLO rules, T0/TTD, dedup, auto-close.
+- Agent Core (`sre/agent.py` + `sre/tools.py`):
+  - Allowlisted read-only tools: `get_logs`, `get_metrics`, `get_deps`, `get_changes`,
+    `get_health`, `get_evidence` (argument validation + truncation).
+  - `investigate()` / `step()` LLM tool-calling loop capped at 12 steps.
+  - System prompt: earliest anomaly, dependency walk upstream, changes-first,
+    ≥2 independent evidence citations (LOG/MET/CHG), confidence honesty.
+  - Structured JSON final answer: `root_cause_service`, `root_cause`, `evidence`,
+    `causal_chain`, `confidence`, `proposed_fix`, `mitigation_vs_cure`.
+  - Per-incident provider failover (fresh history on backup; no mixed tool traces).
+  - Records T1 and `time_to_diagnosis_seconds = T1 - T0` on incident metadata +
+    `agent_diagnosis` audit change.
+  - CLI: `python -m sre.agent investigate [INC-id]` / `prompt`.
+- Tests & Verification:
+  - `.venv/bin/pytest -v` -> 60 passed (prior 50 + 10 agent/tools).
+  - `.venv/bin/python tests/verify_phase5.py` -> cascade crash diagnosed as payments,
+    T1 recorded, failover to backup provider verified.
+
+## Changes made by the last agent
+- Implemented `sre/tools.py`: ToolRegistry allowlist with OpenAI function schemas.
+- Implemented `sre/agent.py`: Agent, Diagnosis, investigate/step loop, T1 recording, CLI.
+- Implemented `tests/test_agent.py` (10 unit tests with mocked LLM).
+- Implemented `tests/verify_phase5.py` (live multi-process verification with scripted LLM).
+
+## Tests and results
+- `pytest -v`: 60 passed.
+- `verify_phase5.py`: Passed all stages (cascade root cause, T1, failover).
+
+## Known issues / blockers
+- None. Live LLM diagnosis against a real primary/backup provider still depends on
+  configured API keys / Ollama; unit + verify cover the loop with mocks.
+
+## Exact next step
+Implement Phase 6: Fix Pipeline (`sre/fixer.py`):
+- Tier enforcement in code (auto-fix / ask-first / never-do).
+- Circuit breaker (≤2 restarts per service / 10 min).
+- Snapshot → apply → verify recovery (health, error rate, p95).
+- Approval flow for ask-first actions; block + log never-do.

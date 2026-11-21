@@ -48,14 +48,18 @@ Supervisor + Chaos CLI --> logs/*.log + /metrics --> Observability (SQLite)
 - Tests: `.venv/bin/python -m pytest -v`
 
 ## Current state
-Phase 4 (Incident Detector) is complete:
+Phase 6 (Fix Pipeline and Approval Flow) is complete:
 - Metric Collector and Log Reader populate SQLite (`data/observability.db`).
 - Rule-based detector (`sre/detector.py`) watches for SLO breaches against `config/slo.yaml`.
 - Accurate T0 anomaly timestamp recording and time-to-detect (TTD) computation.
-- Incident deduplication (further breaches attach to open incident).
-- Incident auto-resolution when healthy for recovery window.
-- 50 passing tests in `pytest`.
-- Live multi-process verification confirmed via `tests/verify_phase4.py`.
+- Agent (`sre/agent.py`) + allowlisted tools (`sre/tools.py`) investigate incidents with
+  LLM tool-calling, provider failover, 12-step cap, and structured JSON diagnosis.
+- T1 (diagnosis time) and time-to-diagnosis (`T1 - T0`) recorded on incident metadata.
+- Fixer (`sre/fixer.py`) enforces action tiers, persisted approvals, circuit breaking,
+  snapshots, apply/verify, incident resolution, and escalation.
+- 74 passing tests in `pytest`.
+- Live multi-process verification confirmed via `tests/verify_phase5.py` and
+  `tests/verify_phase6.py`.
 
 ## Constraints
 - Code decides, LLM reasons. Detection/tiers/verification are plain code.

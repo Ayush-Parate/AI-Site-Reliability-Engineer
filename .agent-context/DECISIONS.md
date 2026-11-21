@@ -62,6 +62,21 @@ Record confirmed decisions only. Include date, decision, reason, and consequence
   Reason: a single root cause (e.g. database lock or crashed dependency) triggers cascading failures across callers.
   Consequence: all affected services and evidence IDs aggregate into one incident, preventing noisy alarm storms.
 
+- 2026-11-21: Agent failover is per-incident, not per-chat-call.
+  Reason: mixing tool-call histories across providers confuses models and breaks
+  reproducible diagnosis traces (README / AIA-02 design).
+  Consequence: `Agent.investigate()` pins `provider=` on each `llm.chat` and
+  restarts the full loop on the backup if the primary fails mid-investigation.
+- 2026-11-21: Investigation tools live in `sre/tools.py` as an allowlist over observability.
+  Reason: argument validation, truncation, and unknown-tool blocking must be code-enforced
+  before Phase 6 adds mutating fix tools.
+  Consequence: the LLM only sees OpenAI function schemas from `ToolRegistry.schemas()`;
+  unknown tool names return `blocked: true`.
+- 2026-11-21: Fix actions use code-enforced tier sets and a restart circuit breaker.
+  Reason: LLM output must not make destructive or repeated recovery decisions by prompt alone.
+  Consequence: auto-fix actions verify recovery, ask-first actions persist approval records,
+  never-do actions are blocked and logged, and repeated restarts escalate to rollback approval.
+
 ## Pending decisions
 - Which concrete primary/backup LLM providers to target for the demo (depends on
   available API keys; default in code is openai primary, ollama backup).

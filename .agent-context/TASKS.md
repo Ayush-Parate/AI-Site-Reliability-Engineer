@@ -1,10 +1,10 @@
 # Task Tracker
 
 ## Current phase
-Phase 4: Incident Detector — COMPLETE.
+Phase 6: Fix Pipeline and Approval Flow — COMPLETE.
 
 ## Current task
-Phase 4 delivered. Next is Phase 5: Agent Core.
+Phase 6 delivered. Next is Phase 7: Postmortem and Dashboard.
 
 ## Completed
 - [x] Inspect repository structure.
@@ -58,15 +58,32 @@ Phase 4 delivered. Next is Phase 5: Agent Core.
         2. Error rate > 5% over 30s
         3. p95 latency > 2x baseline or > 2000ms SLO limit
         4. Memory growth trend > 50MB in 60s
-      - Accurate T0 recording (earliest anomaly timestamp, not detection timestamp).
-      - Time-to-detect (TTD) computation.
-      - Incident deduplication (further breaches attach to open incident, update affected services, append evidence).
+      - Accurate T0 anomaly timestamp recording and time-to-detect (TTD) computation.
+      - Incident deduplication (further breaches attach to open incident).
       - Incident lifecycle: statuses `open`, `diagnosing`, `mitigating`, `resolved`, `escalated`.
       - Auto-close when healthy for `recover_after_seconds`.
       - SQLite persistence (`incidents` table in `data/observability.db`).
       - Audit change logging to `data/changes.jsonl` on open and resolve.
       - Background detector daemon and CLI (`status`, `list`, `check`, `show`, `watch`).
 - [x] Add `tests/test_detector.py` (7 pytest tests) and live verification script `tests/verify_phase4.py`.
+- [x] Implement `sre/tools.py`: allowlisted read-only investigation tools with OpenAI function
+      schemas, argument validation, truncation, and evidence IDs
+      (`get_logs`, `get_metrics`, `get_deps`, `get_changes`, `get_health`, `get_evidence`).
+- [x] Implement `sre/agent.py`:
+      - `investigate()` with per-provider failover (fresh tool history on each provider).
+      - `step()` LLM tool-calling turn.
+      - System prompt enforcing earliest-anomaly, dependency walk, changes-first,
+        two-evidence confirmation, and citation of LOG/MET/CHG IDs.
+      - Cap at 12 steps with forced structured JSON final answer.
+      - Final schema: `root_cause_service`, `root_cause`, `evidence`, `causal_chain`,
+        `confidence`, `proposed_fix`, `mitigation_vs_cure`.
+      - Record T1 and time-to-diagnosis (`T1 - T0`) on incident metadata + audit log.
+      - CLI: `investigate`, `prompt`.
+- [x] Add `tests/test_agent.py` (10 pytest tests) and live verification script `tests/verify_phase5.py`.
+- [x] Implement `sre/fixer.py`: tiered fix pipeline with code-enforced auto-fix, ask-first,
+      and never-do actions; approval persistence; circuit breaker; snapshot; apply; verify.
+- [x] Add `tests/test_fixer.py` (12 pytest tests) and live verification script
+      `tests/verify_phase6.py`.
 
 ## In progress
 - None.
@@ -75,7 +92,7 @@ Phase 4 delivered. Next is Phase 5: Agent Core.
 - None.
 
 ## Next task
-Phase 5: Agent Core (`sre/agent.py`: tool-calling investigation loop, structured final answer schema, root cause analysis with cited evidence IDs, T1 recording and TTD/time-to-diagnosis calculation, provider failover).
+Phase 7: Postmortem and Dashboard (evidence-backed postmortems and operational dashboard).
 
 ## Handoff log
 - 2026-11-21: Implemented Phase 0. Setup, venv, requirements, provider wrapper `sre/llm.py`, `run.py`.
@@ -89,3 +106,10 @@ Phase 5: Agent Core (`sre/agent.py`: tool-calling investigation loop, structured
 - 2026-11-21: Implemented Phase 4. `sre/detector.py` with plain-code rule evaluations against `config/slo.yaml`,
   accurate T0 anomaly recording, TTD calculation, incident deduplication, auto-close resolution timer,
   and SQLite persistence. Verified: 50 pytest unit tests pass; `tests/verify_phase4.py` passed live verification. Next: Phase 5.
+- 2026-11-21: Implemented Phase 5. `sre/tools.py` allowlist + `sre/agent.py` investigation loop with
+  provider failover, 12-step cap, structured JSON diagnosis, T1 / time-to-diagnosis. Verified:
+  60 pytest tests pass; `tests/verify_phase5.py` passed. Next: Phase 6.
+- 2026-11-21: Implemented Phase 6. `sre/fixer.py` provides tiered fix enforcement, persisted
+  human approvals, circuit-breaking, snapshots, application, recovery verification, and escalation.
+  Verified: 74 pytest tests pass; `tests/verify_phase6.py` passed live crash recovery, never-do
+  blocking, bad-deploy rollback, and circuit-breaker approval flow.
