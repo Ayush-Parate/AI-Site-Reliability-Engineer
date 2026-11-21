@@ -48,15 +48,14 @@ Supervisor + Chaos CLI --> logs/*.log + /metrics --> Observability (SQLite)
 - Tests: `.venv/bin/python -m pytest -v`
 
 ## Current state
-Phase 3 (Observability Layer) is complete:
-- Metric Collector polls `/metrics` and `/health` into SQLite (`data/observability.db`).
-- Log Reader queries and indexes structured JSON lines from `logs/*.log` with service/time/level/trace filters.
-- Dependency Graph queries upstream/downstream relationships from `config/dependencies.yaml`.
-- Change Query queries audit events from `data/changes.jsonl`.
-- Derived Metrics calculate `error_rate`, `p95_latency`, and `check_health` against `config/slo.yaml`.
-- Stable Evidence IDs (`LOG-x`, `MET-x`, `CHG-x`) tagged on all items with `get_evidence(id)` lookup.
-- 43 passing tests in `pytest`.
-- Live multi-process verification confirmed via `tests/verify_phase3.py`.
+Phase 4 (Incident Detector) is complete:
+- Metric Collector and Log Reader populate SQLite (`data/observability.db`).
+- Rule-based detector (`sre/detector.py`) watches for SLO breaches against `config/slo.yaml`.
+- Accurate T0 anomaly timestamp recording and time-to-detect (TTD) computation.
+- Incident deduplication (further breaches attach to open incident).
+- Incident auto-resolution when healthy for recovery window.
+- 50 passing tests in `pytest`.
+- Live multi-process verification confirmed via `tests/verify_phase4.py`.
 
 ## Constraints
 - Code decides, LLM reasons. Detection/tiers/verification are plain code.

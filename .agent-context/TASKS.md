@@ -1,10 +1,10 @@
 # Task Tracker
 
 ## Current phase
-Phase 3: Observability Layer — COMPLETE.
+Phase 4: Incident Detector — COMPLETE.
 
 ## Current task
-Phase 3 delivered. Next is Phase 4: Incident Detector.
+Phase 4 delivered. Next is Phase 5: Agent Core.
 
 ## Completed
 - [x] Inspect repository structure.
@@ -52,6 +52,21 @@ Phase 3 delivered. Next is Phase 4: Incident Detector.
       - Stable citation IDs: assign and lookup citations for logs (`LOG-x`), metrics (`MET-x`), and changes (`CHG-x`) via `get_evidence(id)`.
       - Daemon background collector and CLI commands (`health`, `deps`, `changes`, `logs`, `metrics`, `derived`, `poll`, `collect`, `evidence`).
 - [x] Add `tests/test_observability.py` (8 pytest tests) and live verification script `tests/verify_phase3.py`.
+- [x] Implement `sre/detector.py`:
+      - Plain code detection rules reading `config/slo.yaml` without LLM:
+        1. Consecutive health check failures (3 in a row)
+        2. Error rate > 5% over 30s
+        3. p95 latency > 2x baseline or > 2000ms SLO limit
+        4. Memory growth trend > 50MB in 60s
+      - Accurate T0 recording (earliest anomaly timestamp, not detection timestamp).
+      - Time-to-detect (TTD) computation.
+      - Incident deduplication (further breaches attach to open incident, update affected services, append evidence).
+      - Incident lifecycle: statuses `open`, `diagnosing`, `mitigating`, `resolved`, `escalated`.
+      - Auto-close when healthy for `recover_after_seconds`.
+      - SQLite persistence (`incidents` table in `data/observability.db`).
+      - Audit change logging to `data/changes.jsonl` on open and resolve.
+      - Background detector daemon and CLI (`status`, `list`, `check`, `show`, `watch`).
+- [x] Add `tests/test_detector.py` (7 pytest tests) and live verification script `tests/verify_phase4.py`.
 
 ## In progress
 - None.
@@ -60,7 +75,7 @@ Phase 3 delivered. Next is Phase 4: Incident Detector.
 - None.
 
 ## Next task
-Phase 4: Incident Detector (`sre/detector.py` rule-based incident opening without LLM, SLO tracking, T0 recording, deduplication, auto-close).
+Phase 5: Agent Core (`sre/agent.py`: tool-calling investigation loop, structured final answer schema, root cause analysis with cited evidence IDs, T1 recording and TTD/time-to-diagnosis calculation, provider failover).
 
 ## Handoff log
 - 2026-11-21: Implemented Phase 0. Setup, venv, requirements, provider wrapper `sre/llm.py`, `run.py`.
@@ -71,4 +86,6 @@ Phase 4: Incident Detector (`sre/detector.py` rule-based incident opening withou
   LogReader with filtering and indexing from `logs/*.log`, Dependency Graph from `config/dependencies.yaml`,
   Change Query from `data/changes.jsonl`, Derived Metrics (`error_rate`, `p95_latency`, `check_health`),
   stable citation IDs (`LOG-x`, `MET-x`, `CHG-x`), and `get_evidence(id)`.
-  Verified: 43 pytest unit tests pass; `tests/verify_phase3.py` passed all 11 live verification stages. Next: Phase 4.
+- 2026-11-21: Implemented Phase 4. `sre/detector.py` with plain-code rule evaluations against `config/slo.yaml`,
+  accurate T0 anomaly recording, TTD calculation, incident deduplication, auto-close resolution timer,
+  and SQLite persistence. Verified: 50 pytest unit tests pass; `tests/verify_phase4.py` passed live verification. Next: Phase 5.
