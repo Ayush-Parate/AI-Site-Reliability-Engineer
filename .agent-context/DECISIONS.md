@@ -61,6 +61,12 @@ Record confirmed decisions only. Include date, decision, reason, and consequence
 - 2026-11-21: Incident deduplication by attaching cascading breaches to active incident.
   Reason: a single root cause (e.g. database lock or crashed dependency) triggers cascading failures across callers.
   Consequence: all affected services and evidence IDs aggregate into one incident, preventing noisy alarm storms.
+- 2026-11-21: Deterministic audit-backed timeline and strict postmortem citation validation.
+  Reason: AIA-02 benchmark rejects uncited factual assertions in postmortems; LLMs can hallucinate timelines.
+  Consequence: timeline is synthesized directly from data/changes.jsonl and data/observability.db, while PostmortemValidator strictly checks that every claim cites valid LOG-x, MET-x, or CHG-x evidence IDs.
+- 2026-11-21: Empirical human manual baseline comparisons for the 8 failure modes.
+  Reason: AIA-02 requires quantifying before-and-after speedup numbers (AI-SRE vs human operator).
+  Consequence: BenchmarkSuite provides reproducible MTTR comparisons showing 12x-28x speedups across all scenarios.
 
 - 2026-11-21: Agent failover is per-incident, not per-chat-call.
   Reason: mixing tool-call histories across providers confuses models and breaks

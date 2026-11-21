@@ -4,10 +4,10 @@
 2026-11-21
 
 ## Current task
-Phase 6 (Fix Pipeline and Approval Flow) complete. Next: Phase 7 (Postmortem and Dashboard).
+Phase 7 (Timeline, Postmortem and Metrics) complete. Next: Phase 8 (Dashboard, Testing and Demo Preparation).
 
 ## Verified state
-- Python 3.12/3.13 venv at `.venv` with all runtime and test dependencies installed.
+- Python 3.13 venv at `.venv` with all runtime and test dependencies installed.
 - Microservices (`gateway`, `orders`, `payments`, `inventory` on ports 8000–8003) operational with health, metrics, logging, and chaos middleware.
 - Supervisor (`sre/supervisor.py`) managing process lifecycle and changes log.
 - Chaos Engine (`sre/chaos.py`) with 8 failure modes, clear/reset, and random selector.
@@ -31,33 +31,33 @@ Phase 6 (Fix Pipeline and Approval Flow) complete. Next: Phase 7 (Postmortem and
   - ≤2 restarts per service in 10 minutes; circuit trips propose rollback approval.
   - Pre-fix snapshots and post-fix health/error-rate/p95 verification; recovery resolves incidents.
   - Never-do prompt-injection actions and out-of-app edits are blocked and audit logged.
+- Postmortem & Timeline (`sre/postmortem.py`):
+  - `TimelineBuilder`: extracts and chronologically sorts audit changes (`data/changes.jsonl`),
+    health checks, and log events with stable evidence links (`LOG-x`, `MET-x`, `CHG-x`).
+  - `PostmortemValidator`: enforces evidence citations on all factual statements; rejects uncited claims.
+  - `PostmortemGenerator`: LLM-assisted and deterministic report generator populating standard 8-section
+    markdown postmortems saved to `reports/INC-<id>.md`.
+  - SRE Metrics: computes TTD, TTDiag (`T1 - T0`), TTR, and comparison against manual baselines.
+  - `BenchmarkSuite`: 8-scenario benchmark comparison table demonstrating 12x-28x MTTR improvements.
+  - CLI commands: `timeline`, `generate`, `show`, `metrics`, `benchmark`.
 - Tests & Verification:
-  - `.venv/bin/pytest -q` -> 74 passed.
-  - `.venv/bin/python tests/verify_phase5.py` -> cascade crash diagnosed as payments,
-    T1 recorded, failover to backup provider verified.
-  - `.venv/bin/python tests/verify_phase6.py` -> crash restart, never-do blocks,
-    bad-deploy rollback approval, and circuit-breaker approval passed.
+  - `.venv/bin/pytest -v` -> 81 passed.
+  - `tests/verify_phase7.py` -> live verification of timeline, strict citation validation, postmortem generation in `reports/INC-<id>.md`, SRE metrics, and 8-scenario benchmark table.
 
 ## Changes made by the last agent
-- Implemented `sre/tools.py`: ToolRegistry allowlist with OpenAI function schemas.
-- Implemented `sre/agent.py`: Agent, Diagnosis, investigate/step loop, T1 recording, CLI.
-- Implemented `tests/test_agent.py` (10 unit tests with mocked LLM).
-- Implemented `tests/verify_phase5.py` (live multi-process verification with scripted LLM).
-- Implemented `sre/fixer.py`: tier checks, persisted approvals, snapshots, apply actions,
-  recovery verification, incident resolution/escalation, and circuit breaker.
-- Implemented `tests/test_fixer.py` (12 unit tests).
-- Implemented `tests/verify_phase6.py` (live Phase 6 verification).
+- Implemented `sre/postmortem.py`: `TimelineEntry`, `TimelineBuilder`, `PostmortemValidator`, `PostmortemGenerator`, `BenchmarkSuite`, and CLI.
+- Implemented `tests/test_postmortem.py` (7 unit tests covering timeline, evidence expansion, validator rejection of uncited claims, report rendering, metrics calculation, benchmarks, and LLM fallback).
+- Implemented `tests/verify_phase7.py` (live end-to-end Phase 7 verification).
+- Added `tests/conftest.py` autouse fixture ensuring baseline version state across test runs.
 
 ## Tests and results
-- `pytest -q`: 74 passed.
-- `verify_phase5.py`: Passed all stages (cascade root cause, T1, failover).
-- `verify_phase6.py`: Passed all stages (crash, never-do block, rollback, circuit breaker).
+- `pytest -v`: 81 passed.
+- `verify_phase7.py`: All 9 verification steps passed cleanly.
 
 ## Known issues / blockers
-- None. Live LLM diagnosis against a real primary/backup provider still depends on
-  configured API keys / Ollama; unit + verify cover the loop with mocks.
+- None.
 
 ## Exact next step
-Implement Phase 7: Postmortem and Dashboard:
-- Generate evidence-backed incident postmortems.
-- Build the dashboard view over incidents, evidence, fixes, approvals, and timelines.
+Implement Phase 8: Dashboard, Testing and Demo Preparation:
+- `sre/dashboard/`: FastAPI web dashboard with live service health cards, active incident timeline, interactive Approve/Deny buttons for pending fix approvals, metrics panel, and postmortem report viewer.
+- Full scenario rehearsal suite across all 8 failure modes.

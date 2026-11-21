@@ -48,7 +48,7 @@ Supervisor + Chaos CLI --> logs/*.log + /metrics --> Observability (SQLite)
 - Tests: `.venv/bin/python -m pytest -v`
 
 ## Current state
-Phase 6 (Fix Pipeline and Approval Flow) is complete:
+Phase 7 (Timeline, Postmortem and Metrics) is complete:
 - Metric Collector and Log Reader populate SQLite (`data/observability.db`).
 - Rule-based detector (`sre/detector.py`) watches for SLO breaches against `config/slo.yaml`.
 - Accurate T0 anomaly timestamp recording and time-to-detect (TTD) computation.
@@ -57,9 +57,13 @@ Phase 6 (Fix Pipeline and Approval Flow) is complete:
 - T1 (diagnosis time) and time-to-diagnosis (`T1 - T0`) recorded on incident metadata.
 - Fixer (`sre/fixer.py`) enforces action tiers, persisted approvals, circuit breaking,
   snapshots, apply/verify, incident resolution, and escalation.
-- 74 passing tests in `pytest`.
-- Live multi-process verification confirmed via `tests/verify_phase5.py` and
-  `tests/verify_phase6.py`.
+- Postmortem & Timeline (`sre/postmortem.py`):
+  - Audit-backed incident timeline with linked evidence IDs (`LOG-x`, `MET-x`, `CHG-x`).
+  - Strict validator rejecting any postmortem claim without evidence citations.
+  - Markdown reports saved to `reports/INC-<id>.md`.
+  - Metrics computation (TTD, TTDiag, TTR) and benchmark comparison table vs human manual baseline (18.3x average speedup across 8 failure modes).
+- 81 passing tests in `pytest`.
+- Live multi-process verification confirmed through `tests/verify_phase7.py`.
 
 ## Constraints
 - Code decides, LLM reasons. Detection/tiers/verification are plain code.
