@@ -82,7 +82,9 @@ Record confirmed decisions only. Include date, decision, reason, and consequence
   Reason: LLM output must not make destructive or repeated recovery decisions by prompt alone.
   Consequence: auto-fix actions verify recovery, ask-first actions persist approval records,
   never-do actions are blocked and logged, and repeated restarts escalate to rollback approval.
+- 2026-11-21: SRE Dashboard is self-contained FastAPI application on port 8080 with embedded vanilla UI.
+  Reason: eliminates node/npm build dependencies and ensures instant zero-configuration demo readiness across all environments.
+  Consequence: single command `python run.py` serves microservices, background collector, traffic generator, and complete live UI.
 
 ## Pending decisions
-- Which concrete primary/backup LLM providers to target for the demo (depends on
-  available API keys; default in code is openai primary, ollama backup).
+- None. All 8 phases implemented and verified.

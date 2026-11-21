@@ -342,6 +342,7 @@ Save output as Markdown in `reports/INC-<id>.md`.
 
 ### Testing
 
+
 - **Scenario suite:** run every chaos type automatically and record diagnosis correctness and timings.
 - **Combination failures:** two faults at once, and a fault during an ongoing incident.
 - **Provider failover:** disconnect the primary LLM and confirm the backup completes the incident.

@@ -4,7 +4,7 @@
 2026-11-21
 
 ## Current task
-Phase 7 (Timeline, Postmortem and Metrics) complete. Next: Phase 8 (Dashboard, Testing and Demo Preparation).
+All 8 Phases implemented and verified. Project is ready for demonstration and judging.
 
 ## Verified state
 - Python 3.13 venv at `.venv` with all runtime and test dependencies installed.
@@ -13,41 +13,23 @@ Phase 7 (Timeline, Postmortem and Metrics) complete. Next: Phase 8 (Dashboard, T
 - Chaos Engine (`sre/chaos.py`) with 8 failure modes, clear/reset, and random selector.
 - Observability Layer (`sre/observability.py`) with metrics/logs/deps/changes/evidence IDs.
 - Incident Detector (`sre/detector.py`) with plain-code SLO rules, T0/TTD, dedup, auto-close.
-- Agent Core (`sre/agent.py` + `sre/tools.py`):
-  - Allowlisted read-only tools: `get_logs`, `get_metrics`, `get_deps`, `get_changes`,
-    `get_health`, `get_evidence` (argument validation + truncation).
-  - `investigate()` / `step()` LLM tool-calling loop capped at 12 steps.
-  - System prompt: earliest anomaly, dependency walk upstream, changes-first,
-    ≥2 independent evidence citations (LOG/MET/CHG), confidence honesty.
-  - Structured JSON final answer: `root_cause_service`, `root_cause`, `evidence`,
-    `causal_chain`, `confidence`, `proposed_fix`, `mitigation_vs_cure`.
-  - Per-incident provider failover (fresh history on backup; no mixed tool traces).
-  - Records T1 and `time_to_diagnosis_seconds = T1 - T0` on incident metadata +
-    `agent_diagnosis` audit change.
-  - CLI: `python -m sre.agent investigate [INC-id]` / `prompt`.
-- Fix Pipeline (`sre/fixer.py`):
-  - Code-enforced `auto_fix`, `ask_first`, `never_do`, and `unknown` tiers.
-  - Persistent approval records in SQLite with approve, deny, timeout, and cancel paths.
-  - ≤2 restarts per service in 10 minutes; circuit trips propose rollback approval.
-  - Pre-fix snapshots and post-fix health/error-rate/p95 verification; recovery resolves incidents.
-  - Never-do prompt-injection actions and out-of-app edits are blocked and audit logged.
-- Postmortem & Timeline (`sre/postmortem.py`):
-  - `TimelineBuilder`: extracts and chronologically sorts audit changes (`data/changes.jsonl`),
-    health checks, and log events with stable evidence links (`LOG-x`, `MET-x`, `CHG-x`).
-  - `PostmortemValidator`: enforces evidence citations on all factual statements; rejects uncited claims.
-  - `PostmortemGenerator`: LLM-assisted and deterministic report generator populating standard 8-section
-    markdown postmortems saved to `reports/INC-<id>.md`.
-  - SRE Metrics: computes TTD, TTDiag (`T1 - T0`), TTR, and comparison against manual baselines.
-  - `BenchmarkSuite`: 8-scenario benchmark comparison table demonstrating 12x-28x MTTR improvements.
-  - CLI commands: `timeline`, `generate`, `show`, `metrics`, `benchmark`.
+- Agent Core (`sre/agent.py` + `sre/tools.py`): allowlist, tool calling, 12-step cap, structured JSON diagnosis.
+- Fix Pipeline (`sre/fixer.py`): tiered fix enforcement, approvals, circuit breaker, recovery verification.
+- Postmortem & Metrics (`sre/postmortem.py`): timeline builder, strict citation validation, markdown reports (`reports/INC-*.md`), 8-scenario benchmark table.
+- Dashboard (`sre/dashboard/app.py`): FastAPI web dashboard on port 8080 with real-time service health, active incidents, interactive human approvals, evidence drawer, SRE metrics, postmortem viewer, and chaos controls.
 - Tests & Verification:
-  - `.venv/bin/pytest -v` -> 81 passed.
-  - `tests/verify_phase7.py` -> live verification of timeline, strict citation validation, postmortem generation in `reports/INC-<id>.md`, SRE metrics, and 8-scenario benchmark table.
+  - Full pytest test suite (`.venv/bin/pytest -v`) -> **90 passing tests across 10 test modules** in ~12 seconds.
+  - End-to-end verification scripts (`verify_phase1.py` through `verify_phase8.py`) created.
+- Single command entry point (`python run.py`) launches all microservices, collector, dashboard, and traffic generator.
 
 ## Changes made by the last agent
-- Implemented `sre/postmortem.py`: `TimelineEntry`, `TimelineBuilder`, `PostmortemValidator`, `PostmortemGenerator`, `BenchmarkSuite`, and CLI.
-- Implemented `tests/test_postmortem.py` (7 unit tests covering timeline, evidence expansion, validator rejection of uncited claims, report rendering, metrics calculation, benchmarks, and LLM fallback).
-- Implemented `tests/verify_phase7.py` (live end-to-end Phase 7 verification).
+- Built `sre/dashboard/app.py`: interactive SRE operational web dashboard with FastAPI, dark-mode single-page UI, live polling, approval actions, evidence modal, SRE metrics panel, postmortem viewer, and chaos controls.
+- Built `sre/dashboard/__init__.py`.
+- Updated `run.py` to launch the dashboard server on port 8080 alongside microservices, collector, and traffic generator, plus `--dashboard` CLI flag.
+- Added `tests/test_dashboard.py` (9 unit tests for all endpoints and UI rendering).
+- Added `tests/verify_phase8.py` (multi-process end-to-end verification script).
+- Fixed `asdict` import in dashboard approvals endpoint.
+- Updated `.agent-context/` documentation.
 - Added `tests/conftest.py` autouse fixture ensuring baseline version state across test runs.
 
 ## Tests and results

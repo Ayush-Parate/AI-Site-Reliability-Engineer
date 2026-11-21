@@ -117,6 +117,12 @@ def _run_services(with_load: bool = True) -> int:
         print("  - Logs:      logs/<service>.log")
         print("  - DB:        data/observability.db")
 
+        # Start dashboard (port 8080)
+        print("  - Dashboard: http://localhost:8080")
+        cmd_dash = [python_bin, "-m", "uvicorn", "sre.dashboard.app:app", "--host", "0.0.0.0", "--port", "8080", "--log-level", "warning"]
+        proc_dash = subprocess.Popen(cmd_dash, cwd=str(REPO_ROOT), env=env)
+        processes.append(proc_dash)
+
         # Start observability metric collector (every 5 seconds into SQLite)
         print("\nStarting observability metric collector (5s interval)...")
         cmd_col = [python_bin, "sre/observability.py", "collect", "--interval", "5.0"]
@@ -171,6 +177,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Show observability status (metrics, logs, health, dependencies).",
     )
+    parser.add_argument(
+        "--dashboard",
+        action="store_true",
+        help="Run only the SRE dashboard web server on port 8080.",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -195,6 +206,9 @@ def main(argv: list[str] | None = None) -> int:
             for l in logs:
                 print(f"  [{l['id']}] {l['ts']} [{l['level']}] {l['service']}: {l['msg']}")
             return 0
+        if args.dashboard:
+            from sre.dashboard.app import main as dash_main
+            return dash_main()
         return _run_services(with_load=not args.services)
     except LLMConfigError as exc:
         print(f"Configuration error: {exc}", file=sys.stderr)

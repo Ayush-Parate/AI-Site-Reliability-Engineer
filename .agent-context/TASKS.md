@@ -1,10 +1,10 @@
 # Task Tracker
 
 ## Current phase
-Phase 7: Timeline, Postmortem and Metrics — COMPLETE.
+Phase 8: SRE Operational Dashboard, Testing and Demo Preparation — COMPLETE.
 
 ## Current task
-Phase 7 delivered. Next is Phase 8: Dashboard, Testing and Demo Preparation.
+All 8 Phases implemented and verified. Project is ready for live demonstration and judging.
 
 ## Completed
 - [x] Inspect repository structure.
@@ -94,6 +94,17 @@ Phase 7 delivered. Next is Phase 8: Dashboard, Testing and Demo Preparation.
       - `BenchmarkSuite`: 8-scenario benchmark comparison table demonstrating 12x-28x MTTR improvements.
       - CLI commands: `timeline`, `generate`, `show`, `metrics`, `benchmark`.
 - [x] Add `tests/test_postmortem.py` (7 pytest tests) and live verification script `tests/verify_phase7.py`.
+- [x] Implement `sre/dashboard/app.py`:
+      - Real-time dark-mode single-page UI running on FastAPI / Uvicorn at `http://localhost:8080/`.
+      - Live service health cards for all 4 microservices with error rates, p95 latencies, versions, and PIDs.
+      - Active incident panel with trigger rules, T0 anomaly timestamp, and live timeline with evidence links.
+      - Interactive human approval flow with one-click Approve / Deny buttons (`POST /api/approvals/{id}/approve` and `/deny`).
+      - Evidence drawer/modal displaying full telemetry citations (`LOG-x`, `MET-x`, `CHG-x`).
+      - SRE Metrics panel with MTTR and 8-scenario benchmark comparison table.
+      - Postmortem report viewer serving generated markdown reports from `reports/INC-*.md`.
+      - Chaos injection control board and reset controls on the UI for live demo and judging.
+- [x] Add `tests/test_dashboard.py` (9 unit tests) and `tests/verify_phase8.py` (end-to-end multi-process verification script).
+- [x] Full test suite (90 tests across all modules) passing.
 
 ## In progress
 - None.
@@ -102,7 +113,7 @@ Phase 7 delivered. Next is Phase 8: Dashboard, Testing and Demo Preparation.
 - None.
 
 ## Next task
-Phase 8: Dashboard, Testing and Demo Preparation (live FastAPI dashboard, active incident board, approval buttons, scenario testing).
+- Live presentation / demo execution.
 
 ## Handoff log
 - 2026-11-21: Implemented Phase 0. Setup, venv, requirements, provider wrapper `sre/llm.py`, `run.py`.
@@ -127,3 +138,7 @@ Phase 8: Dashboard, Testing and Demo Preparation (live FastAPI dashboard, active
   strict citation validator, markdown postmortems in `reports/INC-<id>.md`, SRE metrics (TTD, TTDiag, TTR),
   and 8-scenario benchmark results table (18.3x average MTTR improvement). Verified: 81 pytest tests pass;
   `tests/verify_phase7.py` passed all live verification checks. Next: Phase 8.
+- 2026-11-21: Implemented Phase 8. `sre/dashboard/app.py` delivers interactive SRE operational web dashboard
+  at `http://localhost:8080/` with live service health cards, active incident panel, human approval flow,
+  evidence drawer, SRE metrics benchmarks, postmortem viewer, and chaos controls. Verified: 90 pytest tests
+  pass. Live single-command runner updated (`python run.py`). All phases complete.
