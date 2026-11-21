@@ -1,0 +1,15 @@
+# Service registry and call graph. Consumed by the supervisor (Phase 2) and
+# observability dependency lookups (Phase 3). "calls" = downstream dependencies.
+services:
+  gateway:
+    port: 8000
+    calls: [orders]
+  orders:
+    port: 8001
+    calls: [payments, inventory]
+  payments:
+    port: 8002
+    calls: []
+  inventory:
+    port: 8003
+    calls: []          # backed by sqlite
