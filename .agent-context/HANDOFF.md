@@ -31,10 +31,11 @@ Phase 2 (Supervisor and Chaos Injection) complete. Next: Phase 3 (Observability 
   - `.venv/bin/python tests/verify_phase2.py` -> live end-to-end execution of all 8 failure injections, supervisor actions, audit change log verification, and clean reset.
 
 ## Changes made by the last agent
-- Implemented `sre/supervisor.py`: `Supervisor`, `ServiceInfo`, CLI commands (`status`, `start`, `stop`, `restart`, `start-all`, `stop-all`).
-- Implemented `sre/chaos.py`: `ChaosEngine`, CLI commands for all 8 failure injectors, `clear`, and `random`.
-- Implemented `tests/test_supervisor.py` and `tests/test_chaos.py` (13 pytest tests).
-- Implemented `tests/verify_phase2.py` live process verification script.
+- Created `.venv` with Python 3.13 and installed all pinned requirements.
+- Hardened `sre/supervisor.py`: automatically stops existing unhealthy process before spawning new instance to eliminate port binding collisions on restarts.
+- Executed full test suite (`pytest -v`): 35/35 passing.
+- Executed `tests/verify_phase2.py`: all 12 validation steps passed.
+- Started project (`run.py`): all 4 microservices + steady load generator running live.
 
 ## Tests and results
 - `pytest -v`: 35 passed.

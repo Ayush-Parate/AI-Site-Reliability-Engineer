@@ -40,6 +40,9 @@ Record confirmed decisions only. Include date, decision, reason, and consequence
   Reason: keeps SQLite write lock held across separate processes until duration expires or
   released via `release_db_lock()`.
   Consequence: provides reliable, repeatable DB lock testing for live judging and rehearsal.
+- 2026-11-21: Supervisor terminates unhealthy processes prior to restarting/starting on the same port.
+  Reason: prevents port binding collisions ([Errno 48] Address already in use) when attempting to start an unhealthy service whose PID is still alive.
+  Consequence: clean process recovery during chaos clearing and automated restarts.
 
 ## Pending decisions
 - Which concrete primary/backup LLM providers to target for the demo (depends on

@@ -169,12 +169,14 @@ class Supervisor:
             info = ServiceInfo(name=service, port=self.registry[service]["port"])
             self.state[service] = info
 
-        # If already running and alive, return
+        # If already running and alive, return if healthy or kill old process if unhealthy
         if info.pid and self.is_pid_alive(info.pid):
             if self.check_health(service):
                 info.status = "running"
                 self._save_state()
                 return info
+            # Process alive but unhealthy - stop it before restarting to avoid port conflict
+            self.stop_service(service)
 
         port = self.registry[service]["port"]
         version = self._read_version(service)
@@ -304,7 +306,7 @@ class Supervisor:
             info = self.state.get(name)
             pid = info.pid if info else None
             alive = self.is_pid_alive(pid)
-            healthy = self.check_health(name, timeout=0.5) if alive else False
+            healthy = self.check_health(name, timeout=1.5) if alive else False
 
             current_version = self._read_version(name)
 
