@@ -26,3 +26,4 @@ def ensure_clean_versions(monkeypatch):
         ver_file = REPO_ROOT / "services" / s / "VERSION"
         if ver_file.is_file():
             ver_file.write_text("1.0.0\n", encoding="utf-8")
+
