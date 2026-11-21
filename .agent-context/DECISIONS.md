@@ -3,10 +3,9 @@
 Record confirmed decisions only. Include date, decision, reason, and consequences.
 
 ## Decisions
-- 2026-11-21: Use Python 3.12 (Homebrew `python@3.12`) for the `.venv`.
-  Reason: Phase 0 requires 3.11+ but the machine only had system Python 3.9.6.
-  Consequence: all commands use `.venv/bin/python`; CI/other machines should use
-  3.11+.
+- 2026-11-21: Use Python 3.13 (Homebrew `python@3.13`) for the `.venv`.
+  Reason: System Python was 3.9.6, project requires 3.11+.
+  Consequence: all commands use `.venv/bin/python`; CI/other machines should use 3.11+.
 - 2026-11-21: Model the LLM layer on the OpenAI-compatible chat-completions
   interface via the `openai` SDK with a custom `base_url` per provider.
   Reason: one code path covers openai/gemini/groq/openrouter/ollama; matches the
@@ -19,8 +18,29 @@ Record confirmed decisions only. Include date, decision, reason, and consequence
   criterion).
   Consequence: fresh clones start with empty runtime dirs (created by code/run.py
   in later phases).
+- 2026-11-21: Use dedicated `CollectorRegistry` per service in `ServiceMetrics`.
+  Reason: prevent duplicate metric registration collisions when multiple services
+  are tested or run in the same Python process.
+  Consequence: clean metric isolation per service instance.
+- 2026-11-21: Microservice versions controlled via `services/<service>/VERSION` file
+  with environment variable override (`<SERVICE>_VERSION`).
+  Reason: allows file-based version bumps for bad deploy simulation and rollbacks
+  as specified in Phase 1 & 2 plans.
+  Consequence: supervisor and rollback pipeline can simulate bad deploy by writing
+  to `VERSION` or setting the env var.
+- 2026-11-21: Use strict SQLite connection timeout (1.0s) in `inventory`.
+  Reason: Phase 2 requires simulating database locks (`BEGIN EXCLUSIVE`) which must
+  fail fast with `OperationalError: database is locked` rather than hanging indefinitely.
+  Consequence: inventory accurately raises 500 when database lock chaos is injected.
+- 2026-11-21: Change log format in `data/changes.jsonl` with sequential `CHG-<n>` evidence IDs.
+  Reason: Phase 3 observability and Phase 5 agent need citeable change IDs for hypotheses.
+  Consequence: all lifecycle actions from supervisor and failure injectors from chaos append
+  with standard schema (`id, ts, action, service, author, details`).
+- 2026-11-21: Background process holding `BEGIN EXCLUSIVE;` on SQLite for DB lock chaos.
+  Reason: keeps SQLite write lock held across separate processes until duration expires or
+  released via `release_db_lock()`.
+  Consequence: provides reliable, repeatable DB lock testing for live judging and rehearsal.
 
 ## Pending decisions
 - Which concrete primary/backup LLM providers to target for the demo (depends on
   available API keys; default in code is openai primary, ollama backup).
-- Database engine details for observability (SQLite assumed by the plan).

@@ -8,12 +8,11 @@ behind human approval, and writes a postmortem. Built for hackathon problem
 statement AIA-02. No Docker required; services run as plain local processes.
 
 ## Technology stack
-- Python 3.12 (Phase 0 requires 3.11+; system Python was 3.9.6, so Python 3.12
-  was installed via Homebrew and the venv uses it).
+- Python 3.13 (Homebrew `python@3.13` in `.venv`).
 - FastAPI + Uvicorn (services and dashboard), httpx (HTTP client / metrics),
   prometheus-client (metrics), PyYAML (config), python-dotenv (env), openai SDK
   (LLM calls). Tests with pytest.
-- SQLite for observability/metrics/incidents (added in later phases).
+- SQLite for inventory (`data/inventory.db`) and observability/metrics/incidents (Phases 3+).
 
 ## Architecture
 ```
@@ -25,31 +24,35 @@ Supervisor + Chaos CLI --> logs/*.log + /metrics --> Observability (SQLite)
 ```
 
 ## Key folders
-- `services/{gateway,orders,payments,inventory}/` — demo microservices (Phase 1+).
+- `services/{gateway,orders,payments,inventory}/` — demo microservices (Phase 1, implemented).
+- `services/common/` — shared logging, Prometheus metrics, chaos, and middleware (Phase 1, implemented).
+- `load.py` — steady load generator (Phase 1, implemented).
 - `sre/` — supervisor, chaos, observability, detector, agent, tools, fixer,
   postmortem, llm, and `dashboard/`.
+- `sre/supervisor.py` — process tracking, lifecycle, and change logging (Phase 2, implemented).
+- `sre/chaos.py` — 8 failure injectors and random chaos CLI (Phase 2, implemented).
 - `sre/llm.py` — provider wrapper with failover (Phase 0, implemented).
 - `config/` — `dependencies.yaml` (call graph), `slo.yaml` (thresholds).
 - `logs/`, `data/`, `reports/` — runtime output (gitignored).
-- `tests/` — pytest suite.
+- `tests/` — pytest suite (LLM, services, supervisor, chaos).
 - `run.py` — single entry point.
 
 ## Setup and commands
-- Create venv: `/opt/homebrew/bin/python3.12 -m venv .venv`
+- Create venv: `/opt/homebrew/bin/python3.13 -m venv .venv`
 - Install: `.venv/bin/python -m pip install -r requirements.txt`
-- Run: `.venv/bin/python run.py`
+- Run all services + traffic: `.venv/bin/python run.py`
+- Run only services: `.venv/bin/python run.py --services`
+- Supervisor CLI: `.venv/bin/python sre/supervisor.py status|start-all|stop-all|restart <svc>`
+- Chaos CLI: `.venv/bin/python sre/chaos.py crash|latency|error-burst|memory-leak|cpu-hog|bad-deploy|dependency-down|db-lock|clear|random`
 - Test LLM providers: `.venv/bin/python run.py --test-llm`
-- Tests: `.venv/bin/python -m pytest -q`
+- Tests: `.venv/bin/python -m pytest -v`
 
 ## Current state
-Phase 0 (Project Setup) is complete:
-- Repo structure, `.gitignore`, `.env.example`, pinned `requirements.txt`.
-- `sre/llm.py` with a `PROVIDERS` list (openai, gemini, groq, openrouter,
-  ollama) and primary->backup failover.
-- `run.py` single entry point with status and `--test-llm`.
-- 11 passing unit tests. `python run.py` runs cleanly.
-- Live `--test-llm` needs a real key in `.env` or a running Ollama; the
-  mechanism works and reports per-provider pass/fail.
+Phase 2 (Supervisor and Chaos Injection) is complete:
+- Supervisor controls process lifecycle, health checks, PID tracking, and records events in `data/changes.jsonl`.
+- Chaos CLI implements all 8 failure injectors (crash, latency, error burst, memory leak, CPU hog, bad deploy, dependency down, DB lock) and random selector.
+- 35 passing tests in `pytest`.
+- Live multi-process verification confirmed via `tests/verify_phase1.py` and `tests/verify_phase2.py`.
 
 ## Constraints
 - Code decides, LLM reasons. Detection/tiers/verification are plain code.

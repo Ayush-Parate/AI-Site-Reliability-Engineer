@@ -1,26 +1,39 @@
 #!/usr/bin/env python3
 """Single entry point for the AI-SRE demo.
 
-Phase 0 scope: verify the environment and LLM configuration. Later phases add
-the service supervisor, observability collector, detector, agent and dashboard
-under the same command.
-
 Usage:
-    python run.py                # print environment / provider status
+    python run.py                # start all 4 microservices + load generator
+    python run.py --services     # start only the 4 microservices
+    python run.py --status       # print environment / provider status
     python run.py --test-llm     # send a test call to each configured provider
 """
 
 from __future__ import annotations
 
 import argparse
+import os
+import signal
+import subprocess
 import sys
+import time
+from pathlib import Path
+from typing import Any
 
 from sre import __version__
 from sre.llm import LLM, LLMConfigError, PROVIDERS
 
+REPO_ROOT = Path(__file__).resolve().parent
+
+SERVICES = [
+    ("inventory", 8003, "services.inventory.main:app"),
+    ("payments", 8002, "services.payments.main:app"),
+    ("orders", 8001, "services.orders.main:app"),
+    ("gateway", 8000, "services.gateway.main:app"),
+]
+
 
 def _print_status() -> None:
-    print(f"AI-SRE v{__version__} — Phase 0 setup")
+    print(f"AI-SRE v{__version__}")
     print(f"Python: {sys.version.split()[0]}")
     print()
 
@@ -53,21 +66,108 @@ def _run_llm_test() -> int:
     return 0
 
 
+def _run_services(with_load: bool = True) -> int:
+    print(f"==================================================")
+    print(f" Starting AI-SRE Microservices Demo App")
+    print(f"==================================================")
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(REPO_ROOT)
+    python_bin = sys.executable
+
+    processes: list[subprocess.Popen] = []
+
+    def _cleanup(*_: Any) -> None:
+        print("\nStopping all services...")
+        for p in processes:
+            p.terminate()
+            try:
+                p.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                p.kill()
+        print("All processes stopped.")
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(sig, _cleanup)
+
+    try:
+        for name, port, app_target in SERVICES:
+            cmd = [
+                python_bin,
+                "-m",
+                "uvicorn",
+                app_target,
+                "--host",
+                "0.0.0.0",
+                "--port",
+                str(port),
+                "--log-level",
+                "info",
+            ]
+            print(f"  -> Starting {name:<10} on http://localhost:{port}")
+            proc = subprocess.Popen(cmd, cwd=str(REPO_ROOT), env=env)
+            processes.append(proc)
+            time.sleep(0.4)
+
+        print("\nAll 4 services started successfully:")
+        print("  - Gateway:   http://localhost:8000 (Health: /health, Metrics: /metrics, Chaos: /chaos)")
+        print("  - Orders:    http://localhost:8001")
+        print("  - Payments:  http://localhost:8002")
+        print("  - Inventory: http://localhost:8003")
+        print("  - Logs:      logs/<service>.log")
+
+        if with_load:
+            print("\nStarting steady traffic generator (2.0 req/s to gateway)...")
+            cmd_load = [python_bin, "load.py", "--rate", "2.0"]
+            proc_load = subprocess.Popen(cmd_load, cwd=str(REPO_ROOT), env=env)
+            processes.append(proc_load)
+
+        print("\nSystem running. Press Ctrl+C to stop.\n")
+
+        # Keep parent alive while sub-processes run
+        while True:
+            for p in processes:
+                code = p.poll()
+                if code is not None and code != 0:
+                    print(f"Process {p.pid} exited with code {code}")
+                    return code
+            time.sleep(1.0)
+
+    except KeyboardInterrupt:
+        _cleanup()
+        return 0
+    except Exception as exc:
+        print(f"Error while running services: {exc}", file=sys.stderr)
+        _cleanup()
+        return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="AI Site Reliability Engineer")
+    parser.add_argument(
+        "--status",
+        action="store_true",
+        help="Print environment / LLM provider configuration status.",
+    )
     parser.add_argument(
         "--test-llm",
         action="store_true",
         help="Send a test call to each configured LLM provider and exit.",
+    )
+    parser.add_argument(
+        "--services",
+        action="store_true",
+        help="Run only the 4 microservices without the load generator.",
     )
     args = parser.parse_args(argv)
 
     try:
         if args.test_llm:
             return _run_llm_test()
-        _print_status()
-        print("Phase 0 ready. Services, detector, agent and dashboard arrive in later phases.")
-        return 0
+        if args.status:
+            _print_status()
+            return 0
+        return _run_services(with_load=not args.services)
     except LLMConfigError as exc:
         print(f"Configuration error: {exc}", file=sys.stderr)
         return 2
