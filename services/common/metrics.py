@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import resource
+import sys
 import prometheus_client
-from prometheus_client import CollectorRegistry, Counter, Histogram
+from prometheus_client import CollectorRegistry, Counter, Histogram, Gauge
 
 
 class ServiceMetrics:
@@ -38,6 +40,28 @@ class ServiceMetrics:
             registry=self.registry,
             buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0),
         )
+
+        # Process metrics for memory (RSS) and CPU
+        try:
+            self.process_resident_memory_bytes = Gauge(
+                "process_resident_memory_bytes",
+                "Resident memory size in bytes.",
+                registry=self.registry,
+            )
+            scale = 1 if sys.platform == "darwin" else 1024
+            self.process_resident_memory_bytes.set_function(
+                lambda: float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * scale)
+            )
+            self.process_cpu_seconds_total = Gauge(
+                "process_cpu_seconds_total",
+                "Total user and system CPU time spent in seconds.",
+                registry=self.registry,
+            )
+            self.process_cpu_seconds_total.set_function(
+                lambda: float(resource.getrusage(resource.RUSAGE_SELF).ru_utime + resource.getrusage(resource.RUSAGE_SELF).ru_stime)
+            )
+        except Exception:
+            pass
 
     def record_request(
         self,

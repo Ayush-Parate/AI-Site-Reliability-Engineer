@@ -1,10 +1,10 @@
 # Task Tracker
 
 ## Current phase
-Phase 2: Supervisor and Chaos Injection — COMPLETE.
+Phase 3: Observability Layer — COMPLETE.
 
 ## Current task
-Phase 2 delivered. Next is Phase 3: Observability Layer.
+Phase 3 delivered. Next is Phase 4: Incident Detector.
 
 ## Completed
 - [x] Inspect repository structure.
@@ -43,6 +43,15 @@ Phase 2 delivered. Next is Phase 3: Observability Layer.
 - [x] Implement clear/reset across all services and release DB locks (`sre/chaos.py clear`).
 - [x] Implement hidden random failure selector (`sre/chaos.py random`).
 - [x] Add `tests/test_supervisor.py` and `tests/test_chaos.py` (13 tests) and live verification script `tests/verify_phase2.py`.
+- [x] Implement `sre/observability.py`:
+      - Metric collector: poll `/metrics` and `/health` every 5 seconds into SQLite (`data/observability.db`).
+      - Log reader: query and filter structured JSON lines from `logs/*.log` (`get_logs(service, since, level, trace_id)`).
+      - Dependency graph: bidirectional upstream and downstream dependency queries (`get_deps(service)`).
+      - Change query: query audit changes from `data/changes.jsonl` (`get_changes(since, service)`).
+      - Derived metrics: calculations for `error_rate(svc, window)`, `p95_latency(svc, window)`, and `check_health(svc)`.
+      - Stable citation IDs: assign and lookup citations for logs (`LOG-x`), metrics (`MET-x`), and changes (`CHG-x`) via `get_evidence(id)`.
+      - Daemon background collector and CLI commands (`health`, `deps`, `changes`, `logs`, `metrics`, `derived`, `poll`, `collect`, `evidence`).
+- [x] Add `tests/test_observability.py` (8 pytest tests) and live verification script `tests/verify_phase3.py`.
 
 ## In progress
 - None.
@@ -51,13 +60,15 @@ Phase 2 delivered. Next is Phase 3: Observability Layer.
 - None.
 
 ## Next task
-Phase 3: Observability Layer (`sre/observability.py`: metric collector into SQLite, log parser,
-dependency lookups, recent change lookups, derived metrics error_rate/p95, and evidence IDs like `LOG-1042` and `MET-77`).
+Phase 4: Incident Detector (`sre/detector.py` rule-based incident opening without LLM, SLO tracking, T0 recording, deduplication, auto-close).
 
 ## Handoff log
 - 2026-11-21: Implemented Phase 0. Setup, venv, requirements, provider wrapper `sre/llm.py`, `run.py`.
 - 2026-11-21: Implemented Phase 1. 4 FastAPI services, logging, metrics, chaos middleware, `load.py`.
 - 2026-11-21: Implemented Phase 2. `sre/supervisor.py` and `sre/chaos.py` CLI with 8 failure modes,
   audit change logging to `data/changes.jsonl` (`CHG-x`), reset capability, and hidden random selector.
-  Verified: 35 pytest unit tests pass; `tests/verify_phase2.py` verified all 8 injectors, supervisor state,
-  change log records, and recovery. Next: Phase 3.
+- 2026-11-21: Implemented Phase 3. `sre/observability.py` with MetricCollector into SQLite (`data/observability.db`),
+  LogReader with filtering and indexing from `logs/*.log`, Dependency Graph from `config/dependencies.yaml`,
+  Change Query from `data/changes.jsonl`, Derived Metrics (`error_rate`, `p95_latency`, `check_health`),
+  stable citation IDs (`LOG-x`, `MET-x`, `CHG-x`), and `get_evidence(id)`.
+  Verified: 43 pytest unit tests pass; `tests/verify_phase3.py` passed all 11 live verification stages. Next: Phase 4.

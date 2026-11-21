@@ -48,11 +48,15 @@ Supervisor + Chaos CLI --> logs/*.log + /metrics --> Observability (SQLite)
 - Tests: `.venv/bin/python -m pytest -v`
 
 ## Current state
-Phase 2 (Supervisor and Chaos Injection) is complete:
-- Supervisor controls process lifecycle, health checks, PID tracking, and records events in `data/changes.jsonl`.
-- Chaos CLI implements all 8 failure injectors (crash, latency, error burst, memory leak, CPU hog, bad deploy, dependency down, DB lock) and random selector.
-- 35 passing tests in `pytest`.
-- Live multi-process verification confirmed via `tests/verify_phase1.py` and `tests/verify_phase2.py`.
+Phase 3 (Observability Layer) is complete:
+- Metric Collector polls `/metrics` and `/health` into SQLite (`data/observability.db`).
+- Log Reader queries and indexes structured JSON lines from `logs/*.log` with service/time/level/trace filters.
+- Dependency Graph queries upstream/downstream relationships from `config/dependencies.yaml`.
+- Change Query queries audit events from `data/changes.jsonl`.
+- Derived Metrics calculate `error_rate`, `p95_latency`, and `check_health` against `config/slo.yaml`.
+- Stable Evidence IDs (`LOG-x`, `MET-x`, `CHG-x`) tagged on all items with `get_evidence(id)` lookup.
+- 43 passing tests in `pytest`.
+- Live multi-process verification confirmed via `tests/verify_phase3.py`.
 
 ## Constraints
 - Code decides, LLM reasons. Detection/tiers/verification are plain code.

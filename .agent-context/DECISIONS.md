@@ -40,6 +40,18 @@ Record confirmed decisions only. Include date, decision, reason, and consequence
   Reason: keeps SQLite write lock held across separate processes until duration expires or
   released via `release_db_lock()`.
   Consequence: provides reliable, repeatable DB lock testing for live judging and rehearsal.
+- 2026-11-21: Observability storage schema in SQLite (`data/observability.db`).
+  Reason: fast indexed queries for time series metrics (`metrics`), health check history (`health_checks`),
+  and deduplicated log indexing (`log_index` with UNIQUE(service, file_line)).
+  Consequence: enables sub-millisecond lookups for derived metrics, window filtering, and exact citation lookups.
+- 2026-11-21: Unified Stable Evidence ID format (`LOG-<id>`, `MET-<id>`, `CHG-<id>`).
+  Reason: AIA-02 requires evidence-backed claims in reasoning and postmortem.
+  Consequence: every log line, metric sample, and audit change has a unique, deterministic citation ID
+  queryable via `get_evidence(id)`.
+- 2026-11-21: Derived metrics combine log ground truth and Prometheus counters.
+  Reason: structured logs provide immediate per-request status and latency, while Prometheus counters
+  provide cumulative rates.
+  Consequence: derived metrics `error_rate` and `p95_latency` reflect anomalies immediately without polling lag.
 
 ## Pending decisions
 - Which concrete primary/backup LLM providers to target for the demo (depends on

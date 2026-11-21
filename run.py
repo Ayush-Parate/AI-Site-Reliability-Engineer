@@ -115,6 +115,13 @@ def _run_services(with_load: bool = True) -> int:
         print("  - Payments:  http://localhost:8002")
         print("  - Inventory: http://localhost:8003")
         print("  - Logs:      logs/<service>.log")
+        print("  - DB:        data/observability.db")
+
+        # Start observability metric collector (every 5 seconds into SQLite)
+        print("\nStarting observability metric collector (5s interval)...")
+        cmd_col = [python_bin, "sre/observability.py", "collect", "--interval", "5.0"]
+        proc_col = subprocess.Popen(cmd_col, cwd=str(REPO_ROOT), env=env)
+        processes.append(proc_col)
 
         if with_load:
             print("\nStarting steady traffic generator (2.0 req/s to gateway)...")
@@ -159,6 +166,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Run only the 4 microservices without the load generator.",
     )
+    parser.add_argument(
+        "--obs",
+        action="store_true",
+        help="Show observability status (metrics, logs, health, dependencies).",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -166,6 +178,22 @@ def main(argv: list[str] | None = None) -> int:
             return _run_llm_test()
         if args.status:
             _print_status()
+            return 0
+        if args.obs:
+            from sre.observability import get_observability
+            obs = get_observability()
+            hlth = obs.check_health()
+            print("--- Service Health ---")
+            for s, d in hlth.get("services", {}).items():
+                print(f"  {s:<12}: healthy={d['healthy']}, status={d['status']}")
+            deps = obs.get_deps()
+            print("\n--- Dependencies ---")
+            for s, d in deps.get("services", {}).items():
+                print(f"  {s:<12}: upstream={d['upstream']}, downstream={d['downstream']}")
+            logs = obs.get_logs(limit=5)
+            print(f"\n--- Recent Logs ({len(logs)} shown) ---")
+            for l in logs:
+                print(f"  [{l['id']}] {l['ts']} [{l['level']}] {l['service']}: {l['msg']}")
             return 0
         return _run_services(with_load=not args.services)
     except LLMConfigError as exc:
