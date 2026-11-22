@@ -220,12 +220,13 @@ class TimelineBuilder:
             )
 
         # 5. Fix / Mitigation if available in metadata
-        fix_info = incident.metadata.get("fix", {})
+        fix_info = incident.metadata.get("fix") or incident.metadata.get("fix_result") or {}
         if fix_info:
-            applied_at = fix_info.get("applied_at", format_iso())
-            applied_unix = fix_info.get("applied_at_unix", t0_unix + 20.0)
-            action = fix_info.get("action", "fix_applied")
-            fix_svc = fix_info.get("service", "unknown")
+            applied_at = fix_info.get("applied_at") or fix_info.get("t2") or format_iso()
+            applied_unix = fix_info.get("applied_at_unix") or fix_info.get("t2_unix") or (t0_unix + 20.0)
+            action = fix_info.get("action") or "fix_applied"
+            fix_svc = fix_info.get("service") or (fix_info.get("args") or {}).get("service") or "unknown"
+            fix_eids = fix_info.get("evidence_ids") or fix_info.get("change_ids") or []
             entries.append(
                 TimelineEntry(
                     ts=applied_at,
@@ -233,7 +234,7 @@ class TimelineBuilder:
                     event="mitigated",
                     service=fix_svc,
                     description=f"Fix applied: {action} on service '{fix_svc}'",
-                    evidence_ids=fix_info.get("evidence_ids", []),
+                    evidence_ids=fix_eids,
                     details=fix_info,
                 )
             )
@@ -526,7 +527,7 @@ Detailed analysis confirms the anomaly initiated at `{incident.t0}` as substanti
         incident_id: str,
         use_llm: bool = True,
     ) -> tuple[str, Path]:
-        """Generate a validated postmortem report and save to reports/INC-<id>.md.
+        """Generate a validated postmortem report and save to reports/INC-<id>.md and modular storage.
 
         Returns (markdown_text, report_path).
         """
@@ -607,9 +608,17 @@ Evidence Citations Available:
             report_md = self._render_deterministic_report(incident, timeline, metrics, expanded_evidence)
 
         # Save to reports/INC-<id>.md
-        clean_id = incident.id.replace(" ", "_")
+        clean_id = incident.id.replace(" ", "_").replace(".md", "").strip()
         report_path = self.reports_dir / f"{clean_id}.md"
         report_path.write_text(report_md, encoding="utf-8")
+
+        # Synchronize into modular categorized storage (reports/INC-<id>/*.json)
+        try:
+            from sre.reports import ReportStorage
+            storage = ReportStorage(reports_dir=self.reports_dir)
+            storage._migrate_legacy_markdown(incident.id)
+        except Exception:
+            pass
 
         return report_md, report_path
 

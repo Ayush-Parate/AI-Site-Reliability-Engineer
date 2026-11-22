@@ -1050,11 +1050,31 @@ class Fixer:
         # (including failed apply/verify), matching verify -> resolve | escalate.
         if result.status != "denied":
             result.status = "escalated"
+
+        # If escalation happened without an approval (e.g. failed restart/verify or crash),
+        # create an ask-first rollback approval so the operator has an actionable recovery card.
+        # Guard: never propose rollback if the action that escalated was already rollback
+        if result.service and result.action != "rollback" and not result.approval_id and result.status != "denied":
+            try:
+                inc_id = result.incident_id or (incident.id if incident else "unknown")
+                rollback_app = self._create_approval(
+                    incident_id=inc_id,
+                    action="rollback",
+                    args={"service": result.service, "to_version": "1.0.0"},
+                    reason=f"Action '{result.action}' failed/escalated — operator approval required to rollback",
+                )
+                result.approval_id = rollback_app.id
+            except Exception:
+                pass
+
         if incident and self.detector:
             self.detector.update_incident_status(
                 incident.id,
                 "escalated",
-                metadata_update={"fix_result": result.to_dict()},
+                metadata_update={
+                    "fix_result": result.to_dict(),
+                    **({"pending_approval_id": result.approval_id} if result.approval_id else {}),
+                },
             )
         self.supervisor.log_change(
             action="fix_escalated",

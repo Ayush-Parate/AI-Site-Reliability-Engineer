@@ -114,7 +114,15 @@ class TraceAndChaosMiddleware(BaseHTTPMiddleware):
         trace_id: str,
         msg: str,
     ) -> None:
-        """Write structured access log adhering to Phase 1 JSON schema."""
+        """Write structured access log adhering to Phase 1 JSON schema.
+
+        Filters out routine successful polling noise (e.g. GET /health 200, GET /metrics 200)
+        so only meaningful operational, business, and error logs are retained.
+        """
+        # Save only important logs: skip routine successful telemetry/docs polling
+        if status < 400 and path in ("/health", "/metrics", "/docs", "/openapi.json", "/favicon.ico"):
+            return
+
         level = logging.INFO
         if status >= 500:
             level = logging.ERROR

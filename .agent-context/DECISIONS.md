@@ -90,5 +90,13 @@ Record confirmed decisions only. Include date, decision, reason, and consequence
   Reason: user requirement to keep only local Ollama with qwen2.5 and remove all external cloud providers.
   Consequence: simplifies configuration to zero-cost, private, local inference without external API keys or cloud dependencies.
 
+- 2026-11-22: Modular, Categorized Incident Reporting and Postmortem Architecture.
+  Reason: user requirement to eliminate monolithic modal text dump in favor of 8 independently retrieved report categories (Executive Summary, Incident Impact, Root Cause Analysis, Evidence & Observability, Incident Timeline, Remediation Actions, Recovery Verification, Prevention & Recommendations).
+  Consequence: reports stored per incident in `reports/<INC-ID>/` with `metadata.json`, `<section>.json`, and `postmortem.md`; on-the-fly backward compatibility for legacy `reports/INC-*.md`; lazy loading and client-side caching for section endpoints (`/api/reports/{id}/sections/{section_id}`).
+
+- 2026-11-22: Single Canonical Incident Source of Truth for Report Export.
+  Reason: user requirement to eliminate duplicated headers, conflicting metrics, 0.0s defaults, and fabricated evidence citations in downloaded Markdown postmortems.
+  Consequence: export generation synchronizes directly against the canonical incident record from `IncidentDetector.get_incident(incident_id)` in SQLite; strips nested/legacy document headers via `sanitize_section_text`; maps missing metrics to "Not recorded"; ensures each of the 8 category headings appears exactly once.
+
 ## Pending decisions
-- None. All 8 phases implemented and verified.
+- None. All phases and modular reporting system implemented and verified.

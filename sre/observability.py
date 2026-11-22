@@ -223,6 +223,12 @@ class Observability:
                     ON log_index(trace_id);
                 CREATE INDEX IF NOT EXISTS idx_log_level
                     ON log_index(level);
+
+                CREATE TABLE IF NOT EXISTS log_sync_tracker (
+                    service TEXT PRIMARY KEY,
+                    last_byte_offset INTEGER NOT NULL,
+                    last_ts TEXT NOT NULL DEFAULT ''
+                );
             """)
 
     def _load_dependencies(self) -> dict[str, dict[str, Any]]:
@@ -379,24 +385,66 @@ class Observability:
 
         with self._db_lock, self.get_connection() as conn:
             cursor = conn.cursor()
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS log_sync_tracker (
+                    service TEXT PRIMARY KEY,
+                    last_byte_offset INTEGER NOT NULL,
+                    last_ts TEXT NOT NULL DEFAULT ''
+                );
+                """
+            )
             for svc in service_names:
                 log_file = self.logs_dir / f"{svc}.log"
                 if not log_file.is_file():
                     continue
 
-                # Query highest indexed line for this service
+                try:
+                    file_size = log_file.stat().st_size
+                except OSError:
+                    continue
+
+                if file_size == 0:
+                    continue
+
+                cursor.execute(
+                    "SELECT last_byte_offset, last_ts FROM log_sync_tracker WHERE service = ?",
+                    (svc,),
+                )
+                tracker_row = cursor.fetchone()
+
+                if tracker_row:
+                    last_offset = int(tracker_row[0])
+                    last_ts = tracker_row[1] or ""
+                    # Detect log rotation or truncation
+                    if file_size < last_offset:
+                        last_offset = 0
+                        last_ts = ""
+                else:
+                    # Initial sync: check if any logs already exist in log_index for this service
+                    cursor.execute(
+                        "SELECT COALESCE(MAX(ts), '') FROM log_index WHERE service = ?",
+                        (svc,),
+                    )
+                    max_ts_db = cursor.fetchone()[0] or ""
+                    last_offset = 0
+                    last_ts = max_ts_db
+
                 cursor.execute(
                     "SELECT COALESCE(MAX(file_line), 0) FROM log_index WHERE service = ?",
                     (svc,),
                 )
-                last_line = cursor.fetchone()[0]
+                max_line_db = cursor.fetchone()[0]
 
                 new_rows: list[tuple[Any, ...]] = []
+                new_last_ts = last_ts
+
                 try:
                     with open(log_file, "r", encoding="utf-8", errors="replace") as f:
-                        for line_idx, line in enumerate(f, start=1):
-                            if line_idx <= last_line:
-                                continue
+                        if last_offset > 0:
+                            f.seek(last_offset)
+
+                        for line in f:
                             line_str = line.strip()
                             if not line_str:
                                 continue
@@ -417,6 +465,10 @@ class Observability:
                                 }
 
                             ts_str = d.get("ts", format_iso())
+                            # If scanning from beginning (last_offset == 0) and we have a last_ts from DB, skip lines already in DB
+                            if last_offset == 0 and last_ts and ts_str <= last_ts:
+                                continue
+
                             try:
                                 dt = datetime.datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
                                 if dt.tzinfo is None:
@@ -431,9 +483,10 @@ class Observability:
                             latency_ms = float(d.get("latency_ms", 0.0))
                             status = int(d.get("status", 0))
 
+                            max_line_db += 1
                             new_rows.append((
                                 svc,
-                                line_idx,
+                                max_line_db,
                                 ts_str,
                                 ts_unix,
                                 level,
@@ -443,6 +496,10 @@ class Observability:
                                 status,
                                 line_str,
                             ))
+                            if ts_str > new_last_ts:
+                                new_last_ts = ts_str
+
+                        new_offset = f.tell()
 
                     if new_rows:
                         cursor.executemany(
@@ -454,7 +511,18 @@ class Observability:
                             """,
                             new_rows,
                         )
-                        conn.commit()
+
+                    cursor.execute(
+                        """
+                        INSERT INTO log_sync_tracker (service, last_byte_offset, last_ts)
+                        VALUES (?, ?, ?)
+                        ON CONFLICT(service) DO UPDATE SET
+                            last_byte_offset = excluded.last_byte_offset,
+                            last_ts = excluded.last_ts
+                        """,
+                        (svc, new_offset, new_last_ts),
+                    )
+                    conn.commit()
                 except OSError:
                     continue
 

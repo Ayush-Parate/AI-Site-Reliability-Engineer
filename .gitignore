@@ -15,9 +15,9 @@ env/
 .env
 
 # Runtime data (do not commit generated artifacts)
-logs/
-data/
-reports/
+/logs/
+/data/
+/reports/
 *.db
 *.sqlite
 *.sqlite3

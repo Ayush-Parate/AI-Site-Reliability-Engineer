@@ -112,6 +112,25 @@ All 8 Phases implemented and verified. Project is ready for live demonstration a
       - Integrated CLI in `run.py` (`--telegram-bot` or automatic launch on `TELEGRAM_BOT_TOKEN`).
 - [x] Add `tests/test_telegram_bot.py` (17 unit tests).
 - [x] Full test suite (107 tests across 11 test modules) passing.
+- [x] Modular, Categorized Incident Reporting System:
+      - 8 standardized report sections (`sre/reports/models.py`): Executive Summary, Incident Impact, Root Cause Analysis, Evidence & Observability, Incident Timeline, Remediation Actions, Recovery Verification, Prevention & Recommendations.
+      - Modular report storage & on-the-fly migration (`sre/reports/storage.py`): `reports/<INC-ID>/` with `metadata.json`, `<section>.json`, and backward-compatible `reports/<INC-ID>.md`.
+      - Business service (`sre/reports/service.py`) for report generation, evidence validation, and category retrieval.
+      - REST API endpoints:
+        - `GET /api/reports`: lightweight paginated list with `status`, `severity`, and `search` filters.
+        - `GET /api/reports/{id}`: metadata, sections index, and markdown.
+        - `GET /api/reports/{id}/sections`: available section metadata index.
+        - `GET /api/reports/{id}/sections/{section_id}`: isolated section payload.
+      - Dashboard UI:
+        - Lightweight report card list with search bar, status filter, severity filter, and pagination.
+        - Split-layout Modular Report Viewer modal with category navigation sidebar, breadcrumb, lazy section loading, client-side caching, raw markdown toggle, and export.
+        - Clickable evidence citations (`LOG-x`, `MET-x`, `CHG-x`) triggering telemetry inspection modal.
+      - Full unit test suite (`tests/test_modular_reports.py` - 8 tests).
+      - Multi-modal Markdown report download suite:
+        - 1. Combined "Download .md": downloads full postmortem across all 8 categories (unchanged).
+        - 2. Individual Category Downloads: dedicated download buttons in category navigation and section views downloading `{incident_id}_{category}_{date}.md` for each of the 8 sections independently via `/api/reports/{id}/sections/{sec_id}/download` and `/export`.
+        - 3. "Download All (ZIP)": bundles all 8 individual category Markdown files plus the full postmortem into `{incident_id}_Postmortem_All_Sections_{date}.zip` via `/api/reports/{id}/zip`.
+      - All 115 pytest unit tests pass cleanly.
 
 ## In progress
 - None.
@@ -149,3 +168,12 @@ All 8 Phases implemented and verified. Project is ready for live demonstration a
   at `http://localhost:8080/` with live service health cards, active incident panel, human approval flow,
   evidence drawer, SRE metrics benchmarks, postmortem viewer, and chaos controls. Verified: 90 pytest tests
   pass. Live single-command runner updated (`python run.py`). All phases complete.
+- 2026-11-22: Refactored Incident Postmortems into a Modular, Categorized Reporting System. Created
+  `sre/reports/` with models, storage, and service. Added paginated, filtered report listing and lazy section
+  loading to `/api/reports` backend. Integrated split-layout category viewer and evidence linking in the dashboard UI.
+- 2026-11-22: Resolved evidence modal hanging and report modal rendering:
+  - Eliminated rogue orphan background monitor processes (3x `observability.py`, 3x `detector.py`) causing SQLite database lock contention and hanging frontend `fetch()` calls.
+  - Added startup cleanup in `run.py` to kill any stale orphan background monitors prior to starting services.
+  - Hardened `viewEvidence()` in `sre/dashboard/app.py`: added `AbortController` timeout (8s), error message reporting, and URI encoding so inspection modals never hang indefinitely on "Loading telemetry...".
+  - Hardened `openModularReport()` in `sre/dashboard/app.py`: immediately pre-populates category navigation items and displays active loading spinners so the report modal body never opens as a blank dark screen.
+  - Verified 117 passing unit tests across 12 test modules.

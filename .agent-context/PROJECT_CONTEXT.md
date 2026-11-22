@@ -57,12 +57,13 @@ Phase 7 (Timeline, Postmortem and Metrics) is complete:
 - T1 (diagnosis time) and time-to-diagnosis (`T1 - T0`) recorded on incident metadata.
 - Fixer (`sre/fixer.py`) enforces action tiers, persisted approvals, circuit breaking,
   snapshots, apply/verify, incident resolution, and escalation.
-- Postmortem & Timeline (`sre/postmortem.py`):
+- Postmortem, Modular Reports & Timeline (`sre/postmortem.py`, `sre/reports/`):
   - Audit-backed incident timeline with linked evidence IDs (`LOG-x`, `MET-x`, `CHG-x`).
   - Strict validator rejecting any postmortem claim without evidence citations.
-  - Markdown reports saved to `reports/INC-<id>.md`.
+  - Modular, 8-category structured storage per incident (`reports/<INC-ID>/` with `metadata.json`, `<section>.json`, `postmortem.md`) and backward-compatible `reports/INC-<id>.md`.
+  - Lazy loading REST APIs: `/api/reports`, `/api/reports/{id}`, `/api/reports/{id}/sections`, `/api/reports/{id}/sections/{section_id}`.
   - Metrics computation (TTD, TTDiag, TTR) and benchmark comparison table vs human manual baseline (18.3x average speedup across 8 failure modes).
-- 81 passing tests in `pytest`.
+- 112 passing tests across 12 test modules in `pytest`.
 - Live multi-process verification confirmed through `tests/verify_phase7.py`.
 
 ## Constraints

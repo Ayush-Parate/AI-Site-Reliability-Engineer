@@ -151,7 +151,7 @@ class Supervisor:
         except OSError:
             return False
 
-    def check_health(self, service: str, timeout: float = 1.0) -> bool:
+    def check_health(self, service: str, timeout: float = 0.2) -> bool:
         self.validate_service(service)
         port = self.registry[service]["port"]
         url = f"http://127.0.0.1:{port}/health"
@@ -302,11 +302,21 @@ class Supervisor:
     def status(self) -> dict[str, dict[str, Any]]:
         """Return the current status of each service in the registry."""
         results = {}
+        # Pre-check health concurrently across services to prevent sequential timeout stalls
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(4, len(self.registry))) as ex:
+            health_map = dict(zip(
+                self.registry.keys(),
+                ex.map(lambda name: self.check_health(name, timeout=0.2), self.registry.keys())
+            ))
+
         for name, cfg in self.registry.items():
             info = self.state.get(name)
             pid = info.pid if info else None
-            alive = self.is_pid_alive(pid)
-            healthy = self.check_health(name, timeout=1.5) if alive else False
+            alive = self.is_pid_alive(pid) if pid else False
+            healthy = health_map.get(name, False)
+            if not alive and healthy and (info is None or info.status != "stopped"):
+                alive = True
 
             current_version = self._read_version(name)
 

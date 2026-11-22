@@ -87,6 +87,20 @@ def _run_services(with_load: bool = True) -> int:
     print(f" Starting AI-SRE Microservices Demo App")
     print(f"==================================================")
 
+    # Clean up any stale or orphan background monitors from earlier sessions
+    try:
+        cur_pid = os.getpid()
+        out = subprocess.check_output(["pgrep", "-f", "sre/(observability|detector|telegram_bot).py"], text=True)
+        for line in out.strip().splitlines():
+            try:
+                opid = int(line.strip())
+                if opid != cur_pid:
+                    os.kill(opid, signal.SIGKILL)
+            except (ValueError, OSError):
+                pass
+    except Exception:
+        pass
+
     env = os.environ.copy()
     env["PYTHONPATH"] = str(REPO_ROOT)
     python_bin = sys.executable
